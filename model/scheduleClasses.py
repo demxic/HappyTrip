@@ -3,6 +3,10 @@ from datetime import datetime, timedelta
 from model.timeClasses import Duration
 
 
+class Equipment(object):
+    pass
+
+
 class Viaticum(object):
     pass
 
@@ -104,3 +108,51 @@ class Marker(object):
     def __str__(self):
         template = "{0.name} {0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
         return template.format(self)
+
+
+class GroundDuty(Marker):
+    """
+    Represents  training, reserve or special assignments.
+    """
+
+    def __init__(self, name: str, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
+                 origin: Airport = None, destination: Airport = None, equipment: Equipment = None):
+        super().__init__(name, scheduled_itinerary, actual_itinerary)
+        self.origin = origin
+        self.destination = destination
+        self.equipment = equipment
+
+    @property
+    def report(self):
+        return self.scheduled_itinerary.begin if self.scheduled_itinerary else self.actual_itinerary.begin
+
+    @property
+    def release(self):
+        return self.end
+
+    def compute_credits(self, creditator=None):
+        self._credits = {'block': Duration(0), 'dh': Duration(0)}
+
+    def as_robust_string(self, rpt=4 * '', rls=4 * '', turn=4 * ''):
+        """Prints a Ground Duty following this heather template
+        DATE  RPT  FLIGHT DEPARTS  ARRIVES  RLS  BLK        TURN       EQ
+        05JUN 0900 E6     MEX 0900 MEX 1500 1500 0000
+
+        OR ********************************************************************
+        Prints a Flight following this heather template
+        DATE  RPT  FLIGHT DEPARTS  ARRIVES  RLS  BLK        TURN       EQ
+        03JUN 1400 0924   MEX 1500 MTY 1640 1720 0140       0000       738
+
+
+        Following arguments being optional
+        rpt : report
+        rls : release
+        turn: turn around time
+        eq : equipment"""
+
+        template = """{0.begin:%d%b} {rpt:4s} {0.name:<6s} {0.origin} {0.begin:%H%M} {0.destination} {0.end:%H%M} {
+        rls:4s} {block:0}       {turn:4s}       {eq} """
+        eq = str(self.equipment) if self.equipment else 3 * ''
+        self.compute_credits()
+        block = self._credits['block']
+        return template.format(self, rpt=rpt, rls=rls, turn=turn, eq=eq, block=block)
