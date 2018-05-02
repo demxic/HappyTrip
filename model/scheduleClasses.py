@@ -63,14 +63,44 @@ class Itinerary(object):
         all_dates = (self.begin.date() + timedelta(days=i) for i in range(delta.days + 1))
         return list(all_dates)
 
-    def compute_credits(self, itinerator=None):
-        return None
-
-    def overlaps(self, other):
-        begin_date = self.begin.date()
-        overlap = max(0, min(self.end, other.end) - max(self.begin, other.begin))
-        return overlap
+    # def compute_credits(self, itinerator=None):
+    #     return None
+    #
+    # def overlaps(self, other):
+    #     begin_date = self.begin.date()
+    #     overlap = max(0, min(self.end, other.end) - max(self.begin, other.begin))
+    #     return overlap
 
     def __str__(self):
         template = "{0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
+        return template.format(self)
+
+
+class Marker(object):
+    """
+    Represents  Vacations, GDO's, time-off, etc.
+    Markers don't account for duty or block time in a given month
+    """
+
+    def __init__(self, name: str, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None):
+        self.name = name
+        self.scheduled_itinerary = scheduled_itinerary
+        self.actual_itinerary = actual_itinerary
+        self.is_flight = False
+        self._credits = None
+
+    @property
+    def begin(self):
+        return self.actual_itinerary.begin if self.actual_itinerary else self.scheduled_itinerary.begin
+
+    @property
+    def end(self):
+        return self.actual_itinerary.end if self.actual_itinerary else self.scheduled_itinerary.end
+
+    @property
+    def report(self):
+        return self.begin
+
+    def __str__(self):
+        template = "{0.name} {0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
         return template.format(self)
