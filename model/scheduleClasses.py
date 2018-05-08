@@ -11,13 +11,13 @@ class Carrier(object):
 
 class Equipment(object):
 
-    def __init__(self, airplane_code: str=None, max_crew_members: int=None):
+    def __init__(self, airplane_code: str = None, max_crew_members: int = None):
         self.airplane_code = airplane_code
         self.max_crew_members = max_crew_members
 
     def __str__(self):
         if self.airplane_code is None:
-            eq_string = 3*''
+            eq_string = 3 * ''
         else:
             eq_string = "{}".format(self.airplane_code)
         return eq_string
@@ -179,12 +179,13 @@ class GroundDuty(Marker):
 
 class Flight(GroundDuty):
 
-    def __init__(self, name: str= None, scheduled_itinerary: Itinerary = None,
-                 actual_itinerary: Itinerary = None, route: Route= None, equipment: Equipment = None,
+    def __init__(self, scheduled_itinerary: Itinerary = None,
+                 actual_itinerary: Itinerary = None, route: Route = None, equipment: Equipment = None,
                  carrier: Carrier = None):
         """
         Holds those necessary fields to represent a Flight Itinerary
         """
+        name = route.flight_number
         super().__init__(name, scheduled_itinerary, actual_itinerary, route, equipment)
         self.carrier = carrier
         self.is_flight = True
@@ -280,3 +281,127 @@ class Flight(GroundDuty):
         {0.duration:2}        {eq}
         """
         return template.format(self)
+
+
+class DutyDay(object):
+    """
+    A DutyDay is a collection of Events, it is not a representation of a regular calendar day,
+    but rather the collection of Events to be served within a given Duty.
+    """
+
+    def __init__(self):
+        self.events = []
+        self._credits = {}
+        self._report = None
+
+    @property
+    def begin(self):
+        return self.events[0].begin
+
+    @property
+    def end(self):
+        return self.events[-1].end
+
+    @property
+    def report(self):
+        return self._report if self._report else self.events[0].report
+
+    @property
+    def release(self):
+        return self.events[-1].release
+
+    @property
+    def delay(self):
+        delay = Duration(self.begin - self.report) - Duration(60)
+        return delay
+
+    @property
+    def duration(self):
+        """How long is the DutyDay"""
+        return Duration(self.release - self.report)
+
+    @property
+    def turns(self):
+        return [Duration(j.begin - i.end) for i, j in zip(self.events[:-1], self.events[1:])]
+
+    @property
+    def origin(self):
+        return self.events[0].origin
+
+    def get_elapsed_dates(self):
+        """Returns a list of dates in range [self.report, self.release]"""
+        delta = self.release.date() - self.report.date()
+        all_dates = [self.report.date() + timedelta(days=i) for i in range(delta.days + 1)]
+        return all_dates
+
+    def compute_credits(self, creditator=None):
+        """Cares only for block, dh, total and daily"""
+        # TODO : Take into consideration whenever there is a change in month
+        if creditator:
+            creditator.credits_from_duty_day(self)
+        else:
+            self._credits['block'] = Duration(0)
+            self._credits['dh'] = Duration(0)
+            for event in self.events:
+                event.compute_credits(creditator)
+                self._credits['block'] += event._credits['block']
+                self._credits['dh'] += event._credits['dh']
+
+            self._credits.update({'daily': self.duration,
+                                  'total': self._credits['block'] + self._credits['dh']})
+        return [self._credits]
+
+    def append(self, current_duty):
+        """Add a duty, one by one  to this DutyDay"""
+        self.events.append(current_duty)
+
+    def merge(self, other):
+        if self.report <= other.report:
+            all_events = self.events + other.events
+        else:
+            all_events = other.events + self.events
+        self.events = []
+        for event in all_events:
+            self.events.append(event)
+
+    def how_many_sundays(self):
+        sundays = []
+        if self.report.isoweekday() == '7':
+            sundays.append(self.report.date())
+        if self.release.isoweekday() == '7':
+            sundays.append(self.release.date())
+        return len(sundays)
+
+    # def save_to_db(self, cursor, containing_trip):
+    #     report = self.report.time()
+    #     release = None
+    #     for flight in self.events:
+    #         flight.save_to_db()
+    #         # print("Flight_id = ", flight._id)
+    #         cursor.execute(sql_config.select_or_insert_flight_to_trip,
+    #                        (flight.id, containing_trip.number, containing_trip.dated,
+    #                         report, release, not flight.name.isdigit(), flight.id,
+    #                         containing_trip.number, containing_trip.dated))
+    #         report = None
+    #     flight_to_trip_id = cursor.fetchone()[0]
+    #     # print("flight_to_trip_id : ", flight_to_trip_id)
+    #     release = self.release.time()
+    #     cursor.execute(sql_config.update_flight_to_trip_release, (release, flight_to_trip_id))
+
+    def __str__(self):
+        """The string representation of the current DutyDay"""
+        rpt = '{:%H%M}'.format(self.report)
+        rls = '    '
+        body = ''
+        if len(self.events) > 1:
+            for event, turn in zip(self.events, self.turns):
+                turn = format(turn, '0')
+                body = body + event.as_robust_string(rpt, rls, turn)
+                rpt = 4 * ''
+            rls = '{:%H%M}'.format(self.release)
+            body = body + self.events[-1].as_robust_string(rls=rls)
+        else:
+            rls = '{:%H%M}'.format(self.release)
+            body = self.events[-1].as_robust_string(rpt, rls, 4 * '')
+
+        return body
