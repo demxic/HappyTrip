@@ -4,7 +4,13 @@ from model.timeClasses import Duration
 
 
 class Equipment(object):
-    pass
+
+    def __init__(self, airplane_code: str, max_crew_members: int):
+        self.airplane_code = airplane_code
+        self.max_crew_members = max_crew_members
+
+    def __str__(self):
+        return "{}".format(self.airplane_code)
 
 
 class Viaticum(object):
