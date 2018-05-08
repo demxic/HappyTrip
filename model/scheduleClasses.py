@@ -5,12 +5,16 @@ from model.timeClasses import Duration
 
 class Equipment(object):
 
-    def __init__(self, airplane_code: str, max_crew_members: int):
+    def __init__(self, airplane_code: str=None, max_crew_members: int=None):
         self.airplane_code = airplane_code
         self.max_crew_members = max_crew_members
 
     def __str__(self):
-        return "{}".format(self.airplane_code)
+        if self.airplane_code is None:
+            eq_string = 3*''
+        else:
+            eq_string = "{}".format(self.airplane_code)
+        return eq_string
 
 
 class Viaticum(object):
