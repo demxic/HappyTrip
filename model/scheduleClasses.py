@@ -41,6 +41,25 @@ class Airport(object):
         return "{}".format(self.iata_code)
 
 
+class CrewMember(object):
+    """Defines a CrewMember"""
+
+    def __init__(self, crew_member_id: int = None, name: str = None, pos: str = None, group: str = None,
+                 base: Airport = None, seniority: int = None, crewType: str = None):
+        self.crew_member_id = crew_member_id
+        self.name = name
+        self.pos = pos
+        self.group = group
+        self.base = base
+        self.seniority = seniority
+        self.salary = 0
+        self.crewType = crewType
+        self.line = None
+
+    def __str__(self):
+        return self.crew_member_id + ' ' + self.name
+
+
 class Route(object):
     """For a given airline, represents a flight number as well as origin and destination airports"""
 
@@ -470,16 +489,16 @@ class Trip(object):
         sundays = filter(lambda date: date.isoweekday() == 7, self.get_elapsed_dates())
         return len(list(sundays))
 
-    def save_to_db(self):
-        # TODO : Guardar report en el 1er vuelo, y rls en el último del duty_day
-        with connect() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(sql_config.select_or_insert_trip,
-                               (self.number, self.dated,
-                                self.number, self.dated))
-                self.id = cursor.fetchone()
-                for duty_day in self.duty_days:
-                    duty_day.save_to_db(cursor, self)
+    # def save_to_db(self):
+    #     # TODO : Guardar report en el 1er vuelo, y rls en el último del duty_day
+    #     with connect() as connection:
+    #         with connection.cursor() as cursor:
+    #             cursor.execute(sql_config.select_or_insert_trip,
+    #                            (self.number, self.dated,
+    #                             self.number, self.dated))
+    #             self.id = cursor.fetchone()
+    #             for duty_day in self.duty_days:
+    #                 duty_day.save_to_db(cursor, self)
 
     def __delitem__(self, key):
         del self.duty_days[key]
