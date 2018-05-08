@@ -3,6 +3,12 @@ from datetime import datetime, timedelta
 from model.timeClasses import Duration
 
 
+class Carrier(object):
+
+    def __init__(self, carrier_code: str = 'AM'):
+        self.carrier_code = carrier_code
+
+
 class Equipment(object):
 
     def __init__(self, airplane_code: str=None, max_crew_members: int=None):
@@ -115,6 +121,10 @@ class Marker(object):
     def report(self):
         return self.begin
 
+    @property
+    def duration(self):
+        return self.end - self.begin
+
     def __str__(self):
         template = "{0.name} {0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
         return template.format(self)
@@ -126,10 +136,9 @@ class GroundDuty(Marker):
     """
 
     def __init__(self, name: str, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
-                 origin: Airport = None, destination: Airport = None, equipment: Equipment = None):
+                 route: Route = None, equipment: Equipment = None):
         super().__init__(name, scheduled_itinerary, actual_itinerary)
-        self.origin = origin
-        self.destination = destination
+        self.route = route
         self.equipment = equipment
 
     @property
@@ -166,3 +175,108 @@ class GroundDuty(Marker):
         self.compute_credits()
         block = self._credits['block']
         return template.format(self, rpt=rpt, rls=rls, turn=turn, eq=eq, block=block)
+
+
+class Flight(GroundDuty):
+
+    def __init__(self, name: str= None, scheduled_itinerary: Itinerary = None,
+                 actual_itinerary: Itinerary = None, route: Route= None, equipment: Equipment = None,
+                 carrier: Carrier = None):
+        """
+        Holds those necessary fields to represent a Flight Itinerary
+        """
+        super().__init__(name, scheduled_itinerary, actual_itinerary, route, equipment)
+        self.carrier = carrier
+        self.is_flight = True
+        self.route = route
+
+    @property
+    def report(self):
+        """Flight's report time"""
+        return super().report - timedelta(hours=1)
+
+    @property
+    def release(self):
+        """Flights's release time """
+        return super().release + timedelta(minutes=30)
+
+    def compute_credits(self, creditator=None):
+        if self.name.isdigit():
+            block = self.duration
+            dh = Duration(0)
+        else:
+            dh = self.duration
+            block = Duration(0)
+        self._credits = {'block': block, 'dh': dh}
+
+    # def save_to_db(self):
+    #     with connect() as connection:
+    #         with connection.cursor() as cursor:
+    #             # WE NEED THE route id
+    #             cursor.execute(sql_config.retrieve_route_id,
+    #                            (self.carrier, self.name[-4:], self.origin, self.destination))
+    #             try:
+    #                 route_id = cursor.fetchone()[0]
+    #             except TypeError:
+    #                 # Route needs to be created
+    #                 # print("Warning!!!!!!!      New route found: ")
+    #                 # print('{} {} {} {}'.format(self.carrier, self.name, self.origin, self.destination))
+    #                 cursor.execute(sql_config.create_route, (self.carrier,
+    #                                                          self.name[-4:],
+    #                                                          self.origin,
+    #                                                          self.destination))
+    #                 route_id = cursor.fetchone()
+    #             # LET'S STORE THE FLIGHT
+    #             scheduled_departure_date = self.published_itinerary.begin.date()
+    #             scheduled_departure_time = self.published_itinerary.begin.time()
+    #             scheduled_block = self.duration.as_timedelta()
+    #             scheduled_equipment = self.equipment
+    #             cursor.execute(sql_config.select_or_insert_flight,
+    #                            (route_id, scheduled_departure_date, scheduled_departure_time,
+    #                             scheduled_block, scheduled_equipment,
+    #                             route_id, scheduled_departure_date))
+    #             self.id = cursor.fetchone()[0]
+
+    # @classmethod
+    # def load_from_db_by_fields(cls, name, origin, destination, scheduled_departure_date, carrier_code='AM'):
+    #     with connect() as connection:
+    #         with connection.cursor() as cursor:
+    #             cursor.execute(sql_config.load_flight_by_fields,
+    #                            (carrier_code, name[-4:], origin, destination, scheduled_departure_date))
+    #             flight_data = cursor.fetchone()
+    #             if flight_data:
+    #                 carrier_code = flight_data[0]
+    #                 flight_number = flight_data[1]
+    #                 departure_airport = flight_data[2]
+    #                 arrival_airport = flight_data[3]
+    #                 scheduled_departure_date = flight_data[4]
+    #                 scheduled_departure_time = flight_data[5]
+    #                 scheduled_departure = datetime.combine(scheduled_departure_date, scheduled_departure_time)
+    #                 scheduled_block = flight_data[6]
+    #                 scheduled_arrival = scheduled_departure + scheduled_block
+    #                 scheduled_equipment = flight_data[7]
+    #                 actual_departure_date = flight_data[8]
+    #                 actual_departure_time = flight_data[9]
+    #                 # actual_departure = datetime.combine(actual_departure_date, actual_departure_time)
+    #                 actual_block = flight_data[10]
+    #                 # actual_arrival = actual_departure + actual_block
+    #                 actual_equipment = flight_data[11]
+    #                 published_itinerary = Itinerary(scheduled_departure, scheduled_arrival)
+    #                 # actual_itinerary = Itinerary(actual_departure, actual_arrival)
+    #                 actual_itinerary = None
+    #                 # print(flight_number, origin, destination, published_itinerary, actual_itinerary,
+    #                 #       scheduled_equipment, carrier_code)
+    #                 return cls(name=flight_number,
+    #                            origin=departure_airport,
+    #                            destination=arrival_airport,
+    #                            published_itinerary=published_itinerary,
+    #                            actual_itinerary=actual_itinerary,
+    #                            equipment=scheduled_equipment,
+    #                            carrier=carrier_code)
+
+    def __str__(self):
+        template = """
+        {0.begin:%d%b} {0.name:>6s} {0.route.origin} {0.begin:%H%M} {0.route.destination} {0.end:%H%M}\
+        {0.duration:2}        {eq}
+        """
+        return template.format(self)
