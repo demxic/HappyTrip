@@ -46,7 +46,7 @@ class CrewMember(object):
 
     def __init__(self, crew_member_id: int = None, name: str = None, pos: str = None, group: str = None,
                  base: Airport = None, seniority: int = None, crewType: str = None):
-        self.crew_member_id = crew_member_id
+        self.id = crew_member_id
         self.name = name
         self.pos = pos
         self.group = group
@@ -57,7 +57,7 @@ class CrewMember(object):
         self.line = None
 
     def __str__(self):
-        return self.crew_member_id + ' ' + self.name
+        return "{0:3s} {1:6s}-{2:12s}".format(self.pos, self.id, self.name)
 
 
 class Route(object):
@@ -125,7 +125,6 @@ class Marker(object):
         self.name = name
         self.scheduled_itinerary = scheduled_itinerary
         self.actual_itinerary = actual_itinerary
-        self.is_flight = False
         self._credits = None
 
     @property
@@ -155,10 +154,11 @@ class GroundDuty(Marker):
     """
 
     def __init__(self, name: str, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
-                 route: Route = None, equipment: Equipment = None):
+                 origin: Airport = None, destination: Airport = None, equipment: Equipment = None):
         super().__init__(name, scheduled_itinerary, actual_itinerary)
-        self.route = route
         self.equipment = equipment
+        self.destination = destination
+        self.origin = origin
 
     @property
     def report(self):
@@ -198,17 +198,15 @@ class GroundDuty(Marker):
 
 class Flight(GroundDuty):
 
-    def __init__(self, scheduled_itinerary: Itinerary = None,
-                 actual_itinerary: Itinerary = None, route: Route = None, equipment: Equipment = None,
-                 carrier: Carrier = None):
+    def __init__(self, name: str=None, origin: Airport = None, destination: Airport = None,
+                 scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
+                 carrier: Carrier = Carrier):
         """
         Holds those necessary fields to represent a Flight Itinerary
         """
-        name = route.flight_number
-        super().__init__(name, scheduled_itinerary, actual_itinerary, route, equipment)
+        super().__init__(name, origin, destination, scheduled_itinerary, actual_itinerary)
         self.carrier = carrier
         self.is_flight = True
-        self.route = route
 
     @property
     def report(self):
@@ -296,7 +294,7 @@ class Flight(GroundDuty):
 
     def __str__(self):
         template = """
-        {0.begin:%d%b} {0.name:>6s} {0.route.origin} {0.begin:%H%M} {0.route.destination} {0.end:%H%M}\
+        {0.begin:%d%b} {0.name:>6s} {0.origin} {0.begin:%H%M} {0.destination} {0.end:%H%M}\
         {0.duration:2}        {eq}
         """
         return template.format(self)
