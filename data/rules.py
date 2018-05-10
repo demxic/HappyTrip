@@ -1,0 +1,3 @@
+
+
+MINIMUM_REST_TIME = 10*60*60
