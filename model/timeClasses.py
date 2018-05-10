@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from dateutil.relativedelta import relativedelta
+import dateutil.relativedelta
 
 
 class Duration(object):
@@ -54,7 +54,6 @@ class Duration(object):
 
     def __radd__(self, other):
         """Because sum(x) always starts adding a 0, Duration takes this into account in this method"""
-        other = Duration(other)
         return Duration(self.minutes + other.minutes)
 
     def __sub__(self, other):
@@ -72,30 +71,30 @@ class Duration(object):
     def __lt__(self, other):
         return self.minutes < other.minutes
 
-    # def __format__(self, fmt='0'):
-    #     """Depending on fmt value, a Duration can be printed as follow:
-    #     fmt = 0  :   HHMM          4 chars no signs                                v.gr. 0132, 0025, 0000
-    #     fmt = 1  :   HHMM          4 chars no sings or blank if self.minutes = 0   v.gr. 0132, 0025,'   '
-    #     fmt = 2  : HHH:MM          6 chars with colon in between                   v.gr  01:32, 00:25, 00:00, 132:45
-    #     fmt = 3  :  HH:MM          5 chars colon in between and blank for min =0   v.gr  01:32, 00:25, '    '
-    #     Any other value defaults to fmt == 0
-    #     """
-    #
-    #     if fmt == '1':
-    #         return str(self)
-    #     elif fmt == '2':
-    #         return repr(self)
-    #     elif fmt == '3':
-    #         prov = repr(self)
-    #         if self.minutes == 0:
-    #             return '     '
-    #         else:
-    #             return repr(self)
-    #     else:
-    #         if self.minutes == 0:
-    #             return '0000'
-    #         else:
-    #             return self.__str__()
+    def __format__(self, fmt='0'):
+        """Depending on fmt value, a Duration can be printed as follow:
+        fmt = 0  :   HHMM          4 chars no signs                                v.gr. 0132, 0025, 0000
+        fmt = 1  :   HHMM          4 chars no sings or blank if self.minutes = 0   v.gr. 0132, 0025,'   '
+        fmt = 2  : HHH:MM          6 chars with colon in between                   v.gr  01:32, 00:25, 00:00, 132:45
+        fmt = 3  :  HH:MM          5 chars colon in between and blank for min =0   v.gr  01:32, 00:25, '    '
+        Any other value defaults to fmt == 0
+        """
+
+        if fmt == '1':
+            return str(self)
+        elif fmt == '2':
+            return repr(self)
+        elif fmt == '3':
+            prov = repr(self)
+            if self.minutes == 0:
+                return '     '
+            else:
+                return repr(self)
+        else:
+            if self.minutes == 0:
+                return '0000'
+            else:
+                return self.__str__()
 
 
 class DateTracker(object):
@@ -110,12 +109,12 @@ class DateTracker(object):
         self.dated = date(self.year, self.month, 1)
         if carry_in:
             self.backwards()
-            print("There is a carry in so datetracker now points to: ")
-            print(self)
+            # print("There is a carry in so datetracker now points to: ")
+            # print(self)
 
     def backwards(self):
         """Moves one day back in time"""
-        self.dated = self.dated + relativedelta(months=-1)
+        self.dated = self.dated + dateutil.relativedelta.relativedelta(months=-1)
 
     def replace(self, day):
         """Change self.date's day to given value, resulting date must
@@ -124,11 +123,11 @@ class DateTracker(object):
         if day < self.dated.day:
             # If condition is met, move one month forward
             self.dated = self.dated.replace(day=day)
-            self.dated = self.dated + relativedelta(months=+1)
+            self.dated = self.dated + dateutil.relativedelta.relativedelta(months=+1)
         else:
             # Still in the same month
-            print("self.dated {} = ".format(self.dated))
-            print("self.dated.replace(day = day)      day = {}".format(day))
+            # print("self.dated {} = ".format(self.dated))
+            # print("self.dated.replace(day = day)      day = {}".format(day))
             self.dated = self.dated.replace(day=day)
 
     def __str__(self):

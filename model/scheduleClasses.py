@@ -80,9 +80,7 @@ class Itinerary(object):
     """ An Itinerary represents a Duration occurring between a 'begin' and an 'end' datetime. """
 
     def __init__(self, begin: datetime, end: datetime):
-        """
-        :Duration duration: Duration
-        """
+        """Enter beginning and ending datetimes"""
         self.begin = begin
         self.end = end
 
@@ -141,7 +139,7 @@ class Marker(object):
 
     @property
     def duration(self):
-        return self.end - self.begin
+        return Duration.from_timedelta(self.end - self.begin)
 
     def __str__(self):
         template = "{0.name} {0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
@@ -151,6 +149,7 @@ class Marker(object):
 class GroundDuty(Marker):
     """
     Represents  training, reserve or special assignments.
+    Ground duties do account for some credits
     """
 
     def __init__(self, name: str, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
@@ -188,23 +187,23 @@ class GroundDuty(Marker):
         turn: turn around time
         eq : equipment"""
 
-        template = """{0.begin:%d%b} {rpt:4s} {0.name:<6s} {0.origin} {0.begin:%H%M} {0.destination} {0.end:%H%M} {
-        rls:4s} {block:0}       {turn:4s}       {eq} """
-        eq = str(self.equipment) if self.equipment else 3 * ''
+        template = """{0.begin:%d%b} {rpt:4s} {0.name:<6s} {0.origin} {0.begin:%H%M} {0.destination} {0.end:%H%M} {rls:4s} {block}       {turn:4s}       {0.equipment} """
         self.compute_credits()
         block = self._credits['block']
-        return template.format(self, rpt=rpt, rls=rls, turn=turn, eq=eq, block=block)
+        return template.format(self, rpt=rpt, rls=rls, turn=turn, block=block)
 
 
 class Flight(GroundDuty):
 
-    def __init__(self, name: str=None, origin: Airport = None, destination: Airport = None,
+    def __init__(self, name: str = None, origin: Airport = None, destination: Airport = None,
                  scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
-                 carrier: Carrier = Carrier):
+                 equipment: Equipment = None, carrier: Carrier = Carrier):
         """
         Holds those necessary fields to represent a Flight Itinerary
         """
-        super().__init__(name, origin, destination, scheduled_itinerary, actual_itinerary)
+        super().__init__(name=name, origin=origin, destination=destination,
+                         scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary)
+        self.equipment = equipment
         self.carrier = carrier
         self.is_flight = True
 
@@ -335,11 +334,11 @@ class DutyDay(object):
     @property
     def duration(self):
         """How long is the DutyDay"""
-        return Duration(self.release - self.report)
+        return Duration.from_timedelta(self.release - self.report)
 
     @property
     def turns(self):
-        return [Duration(j.begin - i.end) for i, j in zip(self.events[:-1], self.events[1:])]
+        return [Duration.from_timedelta(j.begin - i.end) for i, j in zip(self.events[:-1], self.events[1:])]
 
     @property
     def origin(self):
@@ -447,12 +446,17 @@ class Trip(object):
     @property
     def rests(self):
         """Returns a list of all calculated rests between each duty_day"""
-        return [Duration(j.report - i.release) for i, j in zip(self.duty_days[:-1], self.duty_days[1:])]
+        return [Duration.from_timedelta(j.report - i.release) for i, j in zip(self.duty_days[:-1], self.duty_days[1:])]
 
     @property
     def layovers(self):
         """Returns a list of all layover stations """
         return [duty_day.events[-1].destination for duty_day in self.duty_days]
+
+    @property
+    def duration(self):
+        "Returns total time away from base or TAFB"
+        return Duration.from_timedelta(self.release-self.report)
 
     def get_elapsed_dates(self):
         """Returns a list of dates in range [self.report, self.release]"""
@@ -474,7 +478,7 @@ class Trip(object):
                 self._credits['dh'] += duty_day._credits['dh']
                 self._credits['daily'] += duty_day._credits['daily']
             self._credits.update({'total': self._credits['block'] + self._credits['dh'],
-                                  'tafb': Duration(self.release - self.report)})
+                                  'tafb': self.duration})
 
     def append(self, duty_day):
         """Simply append a duty_day"""
