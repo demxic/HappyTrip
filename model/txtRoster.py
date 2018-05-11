@@ -8,9 +8,12 @@ A bidline reader should return a bidline
 """
 from data.regex import crewstats_no_type, crewstats_with_type, rosterDayRE, airItineraryRE, itineraryRE, carryInRE
 from model.elements import Dotdict
-from model.scheduleClasses import Line, Flight, GroundDuty, DutyDay, Trip, Itinerary, Marker
+from model.scheduleClasses import Line, Flight, GroundDuty, DutyDay, Trip, Itinerary, Marker, Airport
 from datetime import datetime, timedelta
-
+from data import rules
+#TODO : Integrate this into my database
+temp_airports_dict = {'MEX': Airport('MEX')}
+#TODO : This is a dummy equipment that should work as a singleton
 
 class RosterReader(object):
     def __init__(self, fp=None):
@@ -173,11 +176,14 @@ class Liner(object):
         duty_day = DutyDay()
         for itin in roster_day.sequence:
             itinerary = self.itinerary_builder.convert(self.date_tracker.dated, itin.begin, itin.end)
-
+            origin = temp_airports_dict.setdefault(itin.origin, Airport(itin.origin))
+            destination = temp_airports_dict.setdefault(itin.destination, Airport(itin.destination))
             if self.line_type == 'scheduled':
-                f = Flight(itin.name, itin.origin, itin.destination, itinerary)
+                f = Flight(name=itin.name, origin=origin, destination=destination,
+                           scheduled_itinerary=itinerary)
             else:
-                f = Flight(itin.name, itin.origin, itin.destination, None, itinerary)
+                f = Flight(name=itin.name, origin=origin, destination=destination,
+                           actual_itinerary=itinerary)
             duty_day.append(f)
         return duty_day
 
