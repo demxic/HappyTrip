@@ -193,8 +193,10 @@ class Liner(object):
         itinerary = self.itinerary_builder.convert(self.date_tracker.dated,
                                                    rD.sequence['begin'],
                                                    rD.sequence['end'])
+        origin = temp_airports_dict['MEX']
+        destination = temp_airports_dict['MEX']
         if self.line_type == 'scheduled':
-            i = GroundDuty(rD.name, itinerary)
+            i = GroundDuty(name=rD.name, scheduled_itinerary=itinerary, origin=origin, destination=destination)
         else:
             i = GroundDuty(rD.name, None, itinerary)
         duty_day.append(i)

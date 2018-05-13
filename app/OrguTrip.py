@@ -2,22 +2,19 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta
 
-# from model.creditator import Creditator
+from model import creditator
 # from model.elements import DateTracker
 # from model.payment import compensation_dict, PayCheck
 # from model.scheduleClasses import Itinerary, Trip, CrewMember
 # from rosterReaders.lineCreator import Liner
-from model.scheduleClasses import CrewMember, Line
+from model.scheduleClasses import CrewMember, Line, Trip
 from model.timeClasses import DateTracker
 from model.txtRoster import RosterReader, Liner
 
-rolFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\roles\\201803.txt"
-summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\res201803.txt"
-
-
-#
-# rolFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\roles\\201802.txt"
-# summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\res201802.txt"
+#rolFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\roles\\201803.txt"
+#summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\res201803.txt"
+rolFile = "C:\\Users\\demxi\\Google Drive\\Sobrecargo\\roles\\201802.txt"
+summaryFile = "C:\\Users\\demxi\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\res201802.txt"
 
 
 class Menu:
@@ -87,7 +84,7 @@ class Menu:
         print(self.line)
 
     def credits(self):
-        cr = Creditator('SOB', 'SO01', self.line.month)
+        cr = creditator.Creditator('SOB', 'SO01', self.line.month)
         print(creditator.line_credits_header)
         for row in self.line.compute_credits(cr):
             print(row)
@@ -101,10 +98,10 @@ class Menu:
                         séptimo día     {day7: >5}
                         prima dominical {sunday: >5}
                         """.format(**mmmm))
-        compensations = compensation_dict(691.02 * 30)
-        paycheck = PayCheck(compensations)
-        paycheck.calculate(mmmm)
-        print(paycheck)
+        # compensations = compensation_dict(691.02 * 30)
+        # paycheck = PayCheck(compensations)
+        # paycheck.calculate(mmmm)
+        # print(paycheck)
 
     def viaticum(self):
         pass

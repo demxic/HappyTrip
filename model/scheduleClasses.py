@@ -16,10 +16,10 @@ class Equipment(object):
         self.max_crew_members = max_crew_members
 
     def __str__(self):
-        if self.airplane_code is None:
-            eq_string = 3 * ''
+        if not self.airplane_code:
+            eq_string = 3 * ' '
         else:
-            eq_string = "{}".format(self.airplane_code)
+            eq_string = self.airplane_code
         return eq_string
 
 
@@ -187,7 +187,8 @@ class GroundDuty(Marker):
         turn: turn around time
         eq : equipment"""
 
-        template = """{0.begin:%d%b} {rpt:4s} {0.name:<6s} {0.origin} {0.begin:%H%M} {0.destination} {0.end:%H%M} {rls:4s} {block}       {turn:4s}       {0.equipment} """
+        template = """
+        {0.begin:%d%b} {rpt:4s} {0.name:<6s} {0.origin} {0.begin:%H%M} {0.destination} {0.end:%H%M} {rls:4s} {block}       {turn:4s}       {0.equipment}"""
         self.compute_credits()
         block = self._credits['block']
         return template.format(self, rpt=rpt, rls=rls, turn=turn, block=block)
@@ -294,7 +295,7 @@ class Flight(GroundDuty):
     def __str__(self):
         template = """
         {0.begin:%d%b} {0.name:>6s} {0.origin} {0.begin:%H%M} {0.destination} {0.end:%H%M}\
-        {0.duration:2}        {eq}
+        {0.duration:2}        {0.equipment}
         """
         return template.format(self)
 
@@ -328,7 +329,7 @@ class DutyDay(object):
 
     @property
     def delay(self):
-        delay = Duration(self.begin - self.report) - Duration(60)
+        delay = Duration.from_timedelta(self.begin - self.report) - Duration(60)
         return delay
 
     @property
@@ -456,7 +457,7 @@ class Trip(object):
     @property
     def duration(self):
         "Returns total time away from base or TAFB"
-        return Duration.from_timedelta(self.release-self.report)
+        return Duration.from_timedelta(self.release - self.report)
 
     def get_elapsed_dates(self):
         """Returns a list of dates in range [self.report, self.release]"""
@@ -567,11 +568,14 @@ class Line(object):
         self._credits['dh'] = Duration(0)
         self._credits['daily'] = Duration(0)
         for duty in self.duties:
-            cr = duty.compute_credits()
-            if cr:
+            try:
+                cr = duty.compute_credits()
                 self._credits['block'] += duty._credits['block']
                 self._credits['dh'] += duty._credits['dh']
                 self._credits['daily'] += duty._credits['daily']
+            except AttributeError:
+                "Object has no compute_credits() method"
+                pass
 
         if creditator:
             credits_list = creditator.credits_from_line(self)
