@@ -1,10 +1,14 @@
 import unittest
+
+from data.database import Database
 from model.scheduleClasses import Airport
+
+Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 
 
 class TestAirport(unittest.TestCase):
     def setUp(self):
-        self.airport = Airport(iata_code='MEX', timezone='America/Mexico_City', viaticum=None)
+        self.airport = Airport(iata_code='MEX', timezone='America/Mexico_City', viaticum='low_cost')
 
 
 class TestInit(TestAirport):
@@ -15,7 +19,18 @@ class TestInit(TestAirport):
         self.assertEqual(self.airport.timezone, 'America/Mexico_City')
 
     def test_viaticum(self):
-        self.assertEqual(self.airport.viaticum, None)
+        self.assertEqual(self.airport.viaticum, 'low_cost')
+
+
+class TestDataBase(TestAirport):
+    # def test_store_airport(self):
+    #     self.airport.save_to_db()
+
+    def test_retrieve_airport(self):
+        airport = Airport.load_from_db_by_iata_code('MEX')
+        self.assertEqual('MEX', airport.iata_code)
+        self.assertEqual('America/Mexico_City', airport.timezone)
+        self.assertEqual( 'low_cost', airport.viaticum)
 
 
 class TestStr(TestAirport):
