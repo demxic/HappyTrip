@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta
 
+import psycopg2
+
+from data.database import CursorFromConnectionPool
 from model.timeClasses import Duration
 
 
@@ -23,19 +26,37 @@ class Equipment(object):
         return eq_string
 
 
-class Viaticum(object):
-    pass
-
-
 class Airport(object):
 
-    def __init__(self, iata_code: str, timezone: str = None, viaticum: Viaticum = None) -> None:
+    def __init__(self, iata_code: str, timezone: str = None, viaticum: str = None):
         """
         Represents an airport as a 3 letter code
         """
         self.iata_code = iata_code
         self.timezone = timezone
         self.viaticum = viaticum
+
+    def save_to_db(self):
+        with CursorFromConnectionPool() as cursor:
+            continent, tz_city = self.timezone.split('/')
+            try:
+                cursor.execute('INSERT INTO airports (iata_code, continent, tz_city, viaticum_zone) '
+                               'VALUES (%s, %s, %s, %s)',
+                               (self.iata_code, continent, tz_city, self.viaticum))
+            except psycopg2.IntegrityError:
+                print("Already stored")
+
+    @classmethod
+    def load_from_db_by_iata_code(cls, iata_code):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * FROM airports WHERE iata_code=%s', (iata_code,))
+            airport_data = cursor.fetchone()
+            timezone = airport_data[1]+'/'+airport_data[2]
+            if airport_data:
+                return cls(iata_code=airport_data[0], timezone=timezone, viaticum=airport_data[3])
+            # Note that you do not need this because any method without a return clause, returns None as default
+            # else:
+            #     return None
 
     def __str__(self):
         return "{}".format(self.iata_code)
