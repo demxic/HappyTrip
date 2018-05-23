@@ -46,13 +46,29 @@ class Airport(object):
             except psycopg2.IntegrityError:
                 print("Already stored")
 
+    def update_to_db(self):
+        split_timezone = self.timezone.split()
+        if len(split_timezone) == 2:
+            # Este es un caso normal
+            continent, tz_city = split_timezone
+        else:
+            # Este es el caso de America/Argentina/Buenos_Aires
+            continent = split_timezone[0]
+            tz_city = split_timezone[1]+'/'+split_timezone[2]
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('UPDATE airports '
+                           '    set continent = %s, tz_city = %s,'
+                           '        viaticum = %s'
+                           'WHERE iata_code = %s', (continent, tz_city,
+                                                    self.viaticum, self.iata_code))
+
     @classmethod
     def load_from_db_by_iata_code(cls, iata_code):
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT * FROM airports WHERE iata_code=%s', (iata_code,))
             airport_data = cursor.fetchone()
-            timezone = airport_data[1]+'/'+airport_data[2]
             if airport_data:
+                timezone = airport_data[1] + '/' + airport_data[2]
                 return cls(iata_code=airport_data[0], timezone=timezone, viaticum=airport_data[3])
             # Note that you do not need this because any method without a return clause, returns None as default
             # else:
