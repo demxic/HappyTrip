@@ -100,26 +100,23 @@ class CrewMember(object):
 class Route(object):
     """For a given airline, represents a flight number as well as origin and destination airports"""
 
-    def __init__(self, flight_number: str, departure_airport: Airport, arrival_airport: Airport,
-                 carrier_code: str = 'AM', ) -> None:
+    def __init__(self, flight_number: str, departure_airport: Airport, arrival_airport: Airport):
         self.flight_number = flight_number
         self.departure_airport = departure_airport
         self.arrival_airport = arrival_airport
-        self.carrier_code = carrier_code
 
     def save_to_db(self):
         with CursorFromConnectionPool() as cursor:
             try:
-                cursor.execute('INSERT INTO public.routes (carrier_code, flight_number,'
+                cursor.execute('INSERT INTO public.routes (flight_number,'
                                '                           departure_airport, arrival_airport) '
-                               'VALUES (%s, %s, %s, %s)',
-                               (self.carrier_code, self.flight_number, self.departure_airport, self.arrival_airport))
+                               'VALUES (%s, %s, %s)',
+                               (self.flight_number, self.departure_airport, self.arrival_airport))
             except psycopg2.IntegrityError:
                 print("Route {} already stored! ".format(str(self)))
 
     def __str__(self):
-        return "{} {} {} {}".format(self.carrier_code, self.flight_number,
-                                    self.departure_airport, self.arrival_airport)
+        return "{} {} {}".format(self.flight_number, self.departure_airport, self.arrival_airport)
 
 
 class Itinerary(object):
