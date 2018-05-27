@@ -54,7 +54,7 @@ class Airport(object):
         else:
             # Este es el caso de America/Argentina/Buenos_Aires
             continent = split_timezone[0]
-            tz_city = split_timezone[1]+'/'+split_timezone[2]
+            tz_city = split_timezone[1] + '/' + split_timezone[2]
         with CursorFromConnectionPool() as cursor:
             cursor.execute('UPDATE airports '
                            '    set continent = %s, tz_city = %s,'
@@ -104,6 +104,7 @@ class Route(object):
         self.flight_number = flight_number
         self.departure_airport = departure_airport
         self.arrival_airport = arrival_airport
+        self.id = self.flight_number + '' + self.departure_airport + '' + self.arrival_airport
 
     def save_to_db(self):
         with CursorFromConnectionPool() as cursor:
@@ -114,6 +115,24 @@ class Route(object):
                                (self.flight_number, self.departure_airport, self.arrival_airport))
             except psycopg2.IntegrityError:
                 print("Route {} already stored! ".format(str(self)))
+
+
+    @classmethod
+    def load_from_db(cls, flight_number, departure_airport, arrival_airport):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * FROM public.routes '
+                           '    WHERE flight_number=%s'
+                           '      AND departure_airport=%s'
+                           '      AND arrival_airport=%s',
+                           (flight_number, departure_airport, arrival_airport))
+            route_data = cursor.fetchone()
+            if route_data:
+                route = cls(flight_number=flight_number, departure_airport=departure_airport,
+                            arrival_airport=arrival_airport)
+                return route
+            # Note that you do not need this because any method without a return clause, returns None as default
+            # else:
+            #     return None
 
     def __str__(self):
         return "{} {} {}".format(self.flight_number, self.departure_airport, self.arrival_airport)
