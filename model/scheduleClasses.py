@@ -14,9 +14,29 @@ class Carrier(object):
 
 class Equipment(object):
 
-    def __init__(self, airplane_code: str = None, max_crew_members: int = None):
+    def __init__(self, airplane_code: str = None, cabin_members: int = None):
         self.airplane_code = airplane_code
-        self.max_crew_members = max_crew_members
+        self.cabin_members = cabin_members
+
+    def save_to_db(self):
+        with CursorFromConnectionPool() as cursor:
+            try:
+                cursor.execute('INSERT INTO equipments (code, cabin_members) '
+                               'VALUES (%s, %s)',
+                               (self.airplane_code, self.cabin_members))
+            except psycopg2.IntegrityError:
+                print("Already stored")
+
+    @classmethod
+    def load_from_db_by_code(cls, code):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * FROM equipments WHERE code=%s', (code,))
+            equipment_data = cursor.fetchone()
+            if equipment_data:
+                return cls(airplane_code=equipment_data[0], cabin_members=equipment_data[1])
+            # Note that you do not need this because any method without a return clause, returns None as default
+            # else:
+            #     return None
 
     def __str__(self):
         if not self.airplane_code:

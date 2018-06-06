@@ -3,15 +3,24 @@ import sys
 
 from data.database import Database
 from data.regex import trip_RE, dutyday_RE, flights_RE
-from model.scheduleClasses import Airport, Trip, Route
+from model.scheduleClasses import Airport, Trip, Route, Equipment
 
 Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 source = "C:\\Users\\Xico\\PycharmProjects\\HappyTrip\\data\\iata_tzmap.txt"
 pbs_path = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\PBS\\"
 file_name = "201806 PBS todos los vuelos ESB.txt"
 datetime_format = "%d%b%Y%H:%M"
-session_airports = {}
+session_airports = dict()
 session_routes = dict()
+session_equipments = dict()
+
+
+def get_airport(city):
+    airport = session_airports.get(city)
+    if airport is None:
+        airport = Airport.load_from_db_by_iata_code(city)
+    session_airports[city] = airport
+    return airport
 
 
 def get_route(name, origin, destination):
@@ -31,12 +40,16 @@ def get_route(name, origin, destination):
     return route
 
 
-def get_airport(city):
-    airport = session_airports.get(city)
-    if airport is None:
-        airport = Airport.load_from_db_by_iata_code(city)
-    session_airports[city] = airport
-    return airport
+def get_equipment(eq):
+    equipment = session_equipments.get(eq)
+    if equipment is None:
+        equipment = Equipment.load_from_db_by_code(eq)
+        if not equipment:
+            cabin_members = input("Minimum cabin members for a {} ".format(eq))
+            equipment = Equipment(eq, cabin_members)
+            equipment.save_to_db()
+        session_airports[eq] = equipment
+    return equipment
 
 
 with open(pbs_path + file_name) as fp:
@@ -59,6 +72,9 @@ with open(pbs_path + file_name) as fp:
                 # Second section gets routes
                 # Because some flights begin with a DH, we should only take into consideration the last 4 digits
                 route = get_route(flight_dict['name'][-4:], flight_dict['origin'], flight_dict['destination'])
+
+                # Third section gets Equipments
+                equipment = get_equipment(flight_dict['equipment'])
 
                 # Third section gets Flights
                 carrier_code = 'AM'
