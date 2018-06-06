@@ -14,20 +14,20 @@ session_airports = {}
 session_routes = dict()
 
 
-def get_route(flight_dict):
-    route_key = flight_dict['name'] + '' + flight_dict['origin'] + '' + flight_dict['destination']
+def get_route(name, origin, destination):
+    route_key = name + '' + origin + '' + destination
     if route_key not in session_routes.keys():
         # Route has not been loaded from the DB
-        route = Route.load_from_db(flight_number=flight_dict['name'],
-                                   departure_airport=flight_dict['origin'],
-                                   arrival_airport=flight_dict['destination'])
+        route = Route.load_from_db_by_fields(flight_number=name,
+                                             departure_airport=origin,
+                                             arrival_airport=destination)
         if not route:
             # Route must be created and stored into DB
-            route = Route(flight_number=flight_dict['name'],
-                          departure_airport=flight_dict['origin'],
-                          arrival_airport=flight_dict['destination'])
+            route = Route(name, origin, destination)
             route.save_to_db()
             session_routes[route_key] = route
+    else:
+        route = session_routes[route_key]
     return route
 
 
@@ -53,12 +53,12 @@ with open(pbs_path + file_name) as fp:
 
                 flight_dict = flight_match.groupdict()
 
-
                 # First section gets airports
                 airport = get_airport(flight_dict['destination'])
 
                 # Second section gets routes
-                route = get_route(flight_dict)
+                # Because some flights begin with a DH, we should only take into consideration the last 4 digits
+                route = get_route(flight_dict['name'][-4:], flight_dict['origin'], flight_dict['destination'])
 
                 # Third section gets Flights
                 carrier_code = 'AM'

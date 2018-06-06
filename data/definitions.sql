@@ -27,16 +27,18 @@ ALTER TABLE public.airports
 
 CREATE TABLE public.routes
 (
+    id smallint NOT NULL DEFAULT nextval('routes_id_seq'::regclass),
     flight_number character(4) COLLATE pg_catalog."default" NOT NULL,
     departure_airport character(3) COLLATE pg_catalog."default" NOT NULL,
     arrival_airport character(3) COLLATE pg_catalog."default" NOT NULL,
-    CONSTRAINT routes_pkey PRIMARY KEY (flight_number, departure_airport, arrival_airport),
+    CONSTRAINT routes_pkey PRIMARY KEY (id),
+    CONSTRAINT routes_flight_number_departure_airport_arrival_airport_key UNIQUE (flight_number, departure_airport, arrival_airport),
     CONSTRAINT routes_arrival_airport_fkey FOREIGN KEY (arrival_airport)
         REFERENCES public.airports (iata_code) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION,
     CONSTRAINT routes_departure_airport_fkey FOREIGN KEY (departure_airport)
-        REFERENCES public.airports (iata_code) MATCH SIMPLE
+        REFERENCES public.airlines (iata_code) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION
 )

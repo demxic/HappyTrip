@@ -100,12 +100,12 @@ class CrewMember(object):
 class Route(object):
     """For a given airline, represents a flight number as well as origin and destination airports"""
 
-    def __init__(self, flight_number: str, departure_airport: Airport, arrival_airport: Airport):
+    def __init__(self, flight_number: str, departure_airport: Airport, arrival_airport: Airport, route_id: int =None):
+        """Flight numbers have 4 digits only"""
+        self.id = route_id
         self.flight_number = flight_number
         self.departure_airport = departure_airport
         self.arrival_airport = arrival_airport
-        self.id = self.flight_number + '' + self.departure_airport + '' + self.arrival_airport
-
     def save_to_db(self):
         with CursorFromConnectionPool() as cursor:
             try:
@@ -118,16 +118,16 @@ class Route(object):
 
 
     @classmethod
-    def load_from_db(cls, flight_number, departure_airport, arrival_airport):
+    def load_from_db_by_fields(cls, flight_number, departure_airport, arrival_airport):
         with CursorFromConnectionPool() as cursor:
-            cursor.execute('SELECT * FROM public.routes '
+            cursor.execute('SELECT id FROM public.routes '
                            '    WHERE flight_number=%s'
                            '      AND departure_airport=%s'
                            '      AND arrival_airport=%s',
                            (flight_number, departure_airport, arrival_airport))
-            route_data = cursor.fetchone()
-            if route_data:
-                route = cls(flight_number=flight_number, departure_airport=departure_airport,
+            route_id = cursor.fetchone()
+            if route_id:
+                route = cls(route_id=route_id[0], flight_number=flight_number, departure_airport=departure_airport,
                             arrival_airport=arrival_airport)
                 return route
             # Note that you do not need this because any method without a return clause, returns None as default
