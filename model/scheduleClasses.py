@@ -120,12 +120,13 @@ class CrewMember(object):
 class Route(object):
     """For a given airline, represents a flight number as well as origin and destination airports"""
 
-    def __init__(self, flight_number: str, departure_airport: Airport, arrival_airport: Airport, route_id: int =None):
+    def __init__(self, flight_number: str, departure_airport: Airport, arrival_airport: Airport, route_id: int = None):
         """Flight numbers have 4 digits only"""
         self.id = route_id
         self.flight_number = flight_number
         self.departure_airport = departure_airport
         self.arrival_airport = arrival_airport
+
     def save_to_db(self):
         with CursorFromConnectionPool() as cursor:
             try:
@@ -135,7 +136,6 @@ class Route(object):
                                (self.flight_number, self.departure_airport, self.arrival_airport))
             except psycopg2.IntegrityError:
                 print("Route {} already stored! ".format(str(self)))
-
 
     @classmethod
     def load_from_db_by_fields(cls, flight_number, departure_airport, arrival_airport):
@@ -167,7 +167,7 @@ class Itinerary(object):
         self.end = end
 
     @classmethod
-    def from_timedelta(cls, begin, a_timedelta):
+    def from_timedelta(cls, begin: datetime, a_timedelta: timedelta):
         """Returns an Itinerary from a given begin datetime and the timedelta duration of it"""
         end = begin + a_timedelta
         return cls(begin, end)
@@ -234,12 +234,11 @@ class GroundDuty(Marker):
     Ground duties do account for some credits
     """
 
-    def __init__(self, name: str, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
-                 origin: Airport = None, destination: Airport = None, equipment: Equipment = None):
-        super().__init__(name, scheduled_itinerary, actual_itinerary)
+    def __init__(self, route: Route = None, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
+                 equipment: Equipment = None):
+        super().__init__(route.flight_number, scheduled_itinerary, actual_itinerary)
+        self.route = route
         self.equipment = equipment
-        self.destination = destination
-        self.origin = origin
 
     @property
     def report(self):
@@ -270,7 +269,7 @@ class GroundDuty(Marker):
         eq : equipment"""
 
         template = """
-        {0.begin:%d%b} {rpt:4s} {0.name:<6s} {0.origin} {0.begin:%H%M} {0.destination} {0.end:%H%M} {rls:4s} {block}       {turn:4s}       {0.equipment}"""
+        {0.begin:%d%b} {rpt:4s} {0.name:<6s} {0.route.departure_airport} {0.begin:%H%M} {0.route.arrival_airport} {0.end:%H%M} {rls:4s} {block}       {turn:4s}       {0.equipment}"""
         self.compute_credits()
         block = self._credits['block']
         return template.format(self, rpt=rpt, rls=rls, turn=turn, block=block)
@@ -278,16 +277,16 @@ class GroundDuty(Marker):
 
 class Flight(GroundDuty):
 
-    def __init__(self, name: str = None, origin: Airport = None, destination: Airport = None,
+    def __init__(self, route: Route = None,
                  scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
-                 equipment: Equipment = None, carrier: Carrier = Carrier):
+                 equipment: Equipment = None, carrier: Carrier = Carrier, id: int = None):
         """
         Holds those necessary fields to represent a Flight Itinerary
         """
-        super().__init__(name=name, origin=origin, destination=destination,
-                         scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary)
+        super().__init__(route=route, scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary)
         self.equipment = equipment
         self.carrier = carrier
+        self._id = id
         self.is_flight = True
 
     @property
@@ -309,74 +308,48 @@ class Flight(GroundDuty):
             block = Duration(0)
         self._credits = {'block': block, 'dh': dh}
 
-    # def save_to_db(self):
-    #     with connect() as connection:
-    #         with connection.cursor() as cursor:
-    #             # WE NEED THE route id
-    #             cursor.execute(sql_config.retrieve_route_id,
-    #                            (self.carrier, self.name[-4:], self.origin, self.destination))
-    #             try:
-    #                 route_id = cursor.fetchone()[0]
-    #             except TypeError:
-    #                 # Route needs to be created
-    #                 # print("Warning!!!!!!!      New route found: ")
-    #                 # print('{} {} {} {}'.format(self.carrier, self.name, self.origin, self.destination))
-    #                 cursor.execute(sql_config.create_route, (self.carrier,
-    #                                                          self.name[-4:],
-    #                                                          self.origin,
-    #                                                          self.destination))
-    #                 route_id = cursor.fetchone()
-    #             # LET'S STORE THE FLIGHT
-    #             scheduled_departure_date = self.published_itinerary.begin.date()
-    #             scheduled_departure_time = self.published_itinerary.begin.time()
-    #             scheduled_block = self.duration.as_timedelta()
-    #             scheduled_equipment = self.equipment
-    #             cursor.execute(sql_config.select_or_insert_flight,
-    #                            (route_id, scheduled_departure_date, scheduled_departure_time,
-    #                             scheduled_block, scheduled_equipment,
-    #                             route_id, scheduled_departure_date))
-    #             self.id = cursor.fetchone()[0]
+    def save_to_db(self):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('INSERT INTO public.flights('
+                           '            airline_iata_code, route_id, scheduled_departure_date, '
+                           '            scheduled_departure_time, scheduled_block, scheduled_equipment)'
+                           'VALUES (%s, %s, %s, %s, %s, %s)'
+                           'RETURNING id;',
+                           (self.carrier, self.route.id, self.begin.date(), self.begin.time(),
+                            self.duration.as_timedelta(), self.equipment.airplane_code))
+            self._id = cursor.fetchone()[0]
 
-    # @classmethod
-    # def load_from_db_by_fields(cls, name, origin, destination, scheduled_departure_date, carrier_code='AM'):
-    #     with connect() as connection:
-    #         with connection.cursor() as cursor:
-    #             cursor.execute(sql_config.load_flight_by_fields,
-    #                            (carrier_code, name[-4:], origin, destination, scheduled_departure_date))
-    #             flight_data = cursor.fetchone()
-    #             if flight_data:
-    #                 carrier_code = flight_data[0]
-    #                 flight_number = flight_data[1]
-    #                 departure_airport = flight_data[2]
-    #                 arrival_airport = flight_data[3]
-    #                 scheduled_departure_date = flight_data[4]
-    #                 scheduled_departure_time = flight_data[5]
-    #                 scheduled_departure = datetime.combine(scheduled_departure_date, scheduled_departure_time)
-    #                 scheduled_block = flight_data[6]
-    #                 scheduled_arrival = scheduled_departure + scheduled_block
-    #                 scheduled_equipment = flight_data[7]
-    #                 actual_departure_date = flight_data[8]
-    #                 actual_departure_time = flight_data[9]
-    #                 # actual_departure = datetime.combine(actual_departure_date, actual_departure_time)
-    #                 actual_block = flight_data[10]
-    #                 # actual_arrival = actual_departure + actual_block
-    #                 actual_equipment = flight_data[11]
-    #                 published_itinerary = Itinerary(scheduled_departure, scheduled_arrival)
-    #                 # actual_itinerary = Itinerary(actual_departure, actual_arrival)
-    #                 actual_itinerary = None
-    #                 # print(flight_number, origin, destination, published_itinerary, actual_itinerary,
-    #                 #       scheduled_equipment, carrier_code)
-    #                 return cls(name=flight_number,
-    #                            origin=departure_airport,
-    #                            destination=arrival_airport,
-    #                            published_itinerary=published_itinerary,
-    #                            actual_itinerary=actual_itinerary,
-    #                            equipment=scheduled_equipment,
-    #                            carrier=carrier_code)
+    @classmethod
+    def load_from_db_by_fields(cls, airline_iata_code: str, scheduled_departure: str, route: Route):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * FROM public.flights '
+                           '    WHERE airline_iata_code = %s'
+                           '      AND route_id=%s'
+                           '      AND scheduled_departure_date=%s',
+                           (airline_iata_code, route.id, scheduled_departure.date()))
+            flight_data = cursor.fetchone()
+            if flight_data:
+                id = flight_data[0]
+                carrier_code = flight_data[1]
+                scheduled_departure = datetime.combine(flight_data[3], flight_data[4])
+                scheduled_block = flight_data[5]
+                scheduled_arrival = scheduled_departure + scheduled_block
+                scheduled_equipment = flight_data[6]
+                # actual_departure = datetime.combine(flight_data[7], flight_data[8])
+                actual_block = flight_data[9]
+                # actual_arrival = actual_departure + actual_block
+                actual_equipment = flight_data[10]
+                published_itinerary = Itinerary(scheduled_departure, scheduled_arrival)
+                # actual_itinerary = Itinerary(actual_departure, actual_arrival)
+                actual_itinerary = None
+                # print(flight_number, origin, destination, published_itinerary, actual_itinerary,
+                #       scheduled_equipment, carrier_code)
+                return cls(route=route, scheduled_itinerary=published_itinerary, actual_itinerary=actual_itinerary,
+                           equipment=scheduled_equipment, carrier=carrier_code, id=id)
 
     def __str__(self):
         template = """
-        {0.begin:%d%b} {0.name:>6s} {0.origin} {0.begin:%H%M} {0.destination} {0.end:%H%M}\
+        {0.begin:%d%b} {0.name:>6s} {0.route.departure_airport} {0.begin:%H%M} {0.route.arrival_airport} {0.end:%H%M}\
         {0.duration:2}        {0.equipment}
         """
         return template.format(self)
@@ -471,21 +444,34 @@ class DutyDay(object):
             sundays.append(self.release.date())
         return len(sundays)
 
-    # def save_to_db(self, cursor, containing_trip):
-    #     report = self.report.time()
-    #     release = None
-    #     for flight in self.events:
-    #         flight.save_to_db()
-    #         # print("Flight_id = ", flight._id)
-    #         cursor.execute(sql_config.select_or_insert_flight_to_trip,
-    #                        (flight.id, containing_trip.number, containing_trip.dated,
-    #                         report, release, not flight.name.isdigit(), flight.id,
-    #                         containing_trip.number, containing_trip.dated))
-    #         report = None
-    #     flight_to_trip_id = cursor.fetchone()[0]
-    #     # print("flight_to_trip_id : ", flight_to_trip_id)
-    #     release = self.release.time()
-    #     cursor.execute(sql_config.update_flight_to_trip_release, (release, flight_to_trip_id))
+    def save_to_db(self, container_trip):
+        with CursorFromConnectionPool() as cursor:
+            report = self.report.time()
+            for flight in self.events:
+                if not flight._id:
+                    # First store flight in DB
+                    flight.save_to_db()
+                else:
+                    cursor.execute('SELECT id FROM public.duty_days '
+                                   'WHERE flight_id=%s AND trip_id=%s AND trip_date=%s',
+                                   (flight._id, container_trip.number, container_trip.dated))
+                    flight_to_trip_id = cursor.fetchone()
+                    if not flight_to_trip_id:
+                        cursor.execute('INSERT INTO public.duty_days('
+                                       '            flight_id, trip_id, trip_date, '
+                                       '            report, dh)'
+                                       'VALUES (%s, %s, %s, %s, %s)'
+                                       'RETURNING id;',
+                                       (flight._id, container_trip.number, container_trip.dated,
+                                        report, not flight.name.isdigit()))
+                        flight_to_trip_id = cursor.fetchone()[0]
+                report = None
+        with CursorFromConnectionPool() as cursor:
+            release = self.release.time()
+            cursor.execute('UPDATE public.duty_days ' 
+                           'SET rel = %s '
+                           'WHERE id = %s;',
+                           (release, flight_to_trip_id))
 
     def __str__(self):
         """The string representation of the current DutyDay"""
@@ -574,16 +560,17 @@ class Trip(object):
         sundays = filter(lambda date: date.isoweekday() == 7, self.get_elapsed_dates())
         return len(list(sundays))
 
-    # def save_to_db(self):
-    #     # TODO : Guardar report en el 1er vuelo, y rls en el último del duty_day
-    #     with connect() as connection:
-    #         with connection.cursor() as cursor:
-    #             cursor.execute(sql_config.select_or_insert_trip,
-    #                            (self.number, self.dated,
-    #                             self.number, self.dated))
-    #             self.id = cursor.fetchone()
-    #             for duty_day in self.duty_days:
-    #                 duty_day.save_to_db(cursor, self)
+    def save_to_db(self):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * FROM public.trips '
+                           'WHERE trips.id=%s AND trips.dated=%s', (self.number, self.dated))
+            trip_data = cursor.fetchone()
+            if not trip_data:
+                cursor.execute('INSERT INTO public.trips (id, dated) '
+                               'VALUES (%s, %s);', (int(self.number), self.dated))
+
+        for duty_day in self.duty_days:
+            duty_day.save_to_db(self)
 
     def __delitem__(self, key):
         del self.duty_days[key]
@@ -618,7 +605,7 @@ class Trip(object):
         for duty_day, rest in zip(self.duty_days, self.rests):
             rest = repr(rest)
             body = body + body_template.format(duty_day=duty_day,
-                                               destination=duty_day.events[-1].destination,
+                                               destination=duty_day.events[-1].route.arrival_airport,
                                                rest=rest,
                                                **duty_day._credits)
         else:

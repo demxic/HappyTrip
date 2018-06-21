@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import dateutil.relativedelta
 
 
@@ -132,3 +132,36 @@ class DateTracker(object):
 
     def __str__(self):
         return "Pointing to {0:%d-%b-%Y}".format(self.dated)
+
+
+class DateTimeTracker(object):
+    """Used to keep track of a dt object in order to build Itineraries"""
+
+    def __init__(self, begin):
+        self.datetime_format = "%d%b%Y%H:%M"
+        self.dt = datetime.strptime(begin, self.datetime_format)
+
+    def start(self):
+        "Moves one hour ahead"
+        self.dt += timedelta(hours=1)
+
+    def release(self):
+        "Moves half an hour ahead"
+        self.dt += timedelta(minutes=30)
+
+    def forward(self, time_string: str) -> datetime:
+        """Moves HH hours and MM minutes forward in time.
+        time_string may be of type HH:MM or HHMM
+        """
+        hh = int(time_string[:2])
+        mm = int(time_string[-2:])
+        td: timedelta = timedelta(hours=hh, minutes=mm)
+        self.dt += td
+        return td
+
+    @property
+    def date(self):
+        return self.dt.date()
+
+    def __str__(self):
+        return self.dt.strftime(self.datetime_format)
