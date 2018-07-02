@@ -36,3 +36,12 @@ SELECT trip_id, trip_date, report, scheduled_departure_date as "dated", dh, airl
 INNER JOIN public.flights ON flight_id = flights.id
 INNER JOIN public.routes ON route_id = routes.id
 ORDER BY trip_id, trip_date, dated, "ETD" ASC;
+
+
+-- Show trip
+SELECT * FROM public.duty_days
+INNER JOIN public.flights ON flight_id = flights.id
+WHERE trip_id = '3939' AND trip_date = '2018-06-20'
+ORDER BY scheduled_departure_date, scheduled_departure_time ASC;
+
+

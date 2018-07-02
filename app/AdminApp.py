@@ -66,8 +66,8 @@ TO"""
 Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 source = "C:\\Users\\Xico\\PycharmProjects\\HappyTrip\\data\\iata_tzmap.txt"
 pbs_path = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\PBS\\2018 PBS\\201806 PBS\\"
-file_names = ["201806 PBS EJE.txt"]
-# file_names = ["201806 PBS todos los vuelos ESB.txt", "201806 PBS todos los vuelos.txt"]
+# file_names = ["201806 PBS EJE.txt"]
+file_names = ["201806 PBS EJE.txt", "201806 PBS SOB.txt"]
 session_airports = dict()
 session_routes = dict()
 session_equipments = dict()
@@ -129,18 +129,17 @@ def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
 
     # 4. Create and store flight if not found in the DB
     if not flight:
-        if flight_dict['blk'] == '0000' and postpone:
-            # 4.a Found a a DH flight, wait for later to create it
-            return None
-        elif flight_dict['blk'] != '0000':
-            # 4.b Found a regular flight, ready to create it
+        if flight_dict['blk'] != '0000':
+            # 4.a Found a regular flight, create it
             td = dt_tracker.forward(flight_dict['blk'])
             itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
-        else:
-            # 4.c Create itinerary with suggested value:
+        elif postpone:
+            # 4.b Found a a DH flight, wait for later to create it
+            return None
+        elif suggested_blk != '0000' and suggested_blk.isnumeric():
+            # 4.c Try suggested blk time
             td = dt_tracker.forward(suggested_blk)
             itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
-
             if not itinerary.in_same_month():
                 # 4.d If itinerary reaches next month, chances are the suggested_blk time won't work
                 print("FLT {} {} {} {} {} {} ".format(dt_tracker.date, flight_dict['name'],
@@ -151,6 +150,17 @@ def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
                 blk = input("Insert time as HHMM format :")
                 td = dt_tracker.forward(blk)
                 itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
+        else:
+            # 4.d Unable to determine blk time
+            print("FLT {} {} {} {} {} {} ".format(dt_tracker.date, flight_dict['name'],
+                                                  flight_dict['origin'], flight_dict['begin'],
+                                                  flight_dict['destination'], flight_dict['end']))
+            print("unable to determine DH time.")
+            print("")
+            blk = input("Insert flight duration as HHMM format :")
+            td = dt_tracker.forward(blk)
+            itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
+
         equipment = get_equipment(flight_dict['equipment'])
         flight = Flight(route=route, scheduled_itinerary=itinerary,
                         equipment=equipment, carrier=carrier_code)
@@ -196,7 +206,7 @@ def get_duty_day(dt_tracker, duty_day_dict, postpone):
         print("Actual daily time ", duty_day.duration)
         input()
         for flight in duty_day.events:
-            if not flight.number.isnumeric():
+            if not flight.route.flight_number.isnumeric():
                 print("Deleting flight {} from DataBase ".format(flight))
                 flight.delete()
                 return None
@@ -204,13 +214,11 @@ def get_duty_day(dt_tracker, duty_day_dict, postpone):
     return duty_day
 
 
-def get_trip(json_trip: dict, postpone: bool) -> Trip:
-    dt_tracker = DateTimeTracker(json_trip['date_and_time'])
-    trip = Trip(number=json_trip['number'], dated=dt_tracker.date)
-    if trip.number == '3309':
-        s = input()
+def get_trip(trip_dict: dict, postpone: bool) -> Trip:
+    dt_tracker = DateTimeTracker(trip_dict['date_and_time'])
+    trip = Trip(number=trip_dict['number'], dated=dt_tracker.date)
 
-    for json_dd in json_trip['duty_days']:
+    for json_dd in trip_dict['duty_days']:
         duty_day = get_duty_day(dt_tracker, json_dd, postpone)
         if duty_day:
             trip.append(duty_day)
@@ -218,9 +226,9 @@ def get_trip(json_trip: dict, postpone: bool) -> Trip:
             return None
 
     # Assert that trip was built properly
-    if trip.duration.no_trailing_zero() != json_trip['tafb']:
+    if trip.duration.no_trailing_zero() != trip_dict['tafb']:
         print("trip {} dated {} {} does not match expected TAFB {}".format(
-            trip.number, trip.dated, trip.duration.no_trailing_zero(), json_trip['tafb']))
+            trip.number, trip.dated, trip.duration.no_trailing_zero(), trip_dict['tafb']))
         print(trip)
         trip = None
 
@@ -295,8 +303,8 @@ class Menu:
                 print("{0} is not a valid choice".format(choice))
 
     def read_trips_file(self):
+        json_trip_count = 0
         for file_name in file_names:
-            json_trip_count = 0
             # 1. Read in and clean the txt.file
             with open(pbs_path + file_name, 'r') as fp:
                 print("\n file name : ", file_name)
@@ -324,87 +332,30 @@ class Menu:
     def figure_out_unsaved_trips(self):
         count = 0
         print("Building {} unsaved_trips :".format(len(unsaved_trips)))
+        # 1. Let us go over all trips again, some might now be discarded
         for trip_dict in unsaved_trips:
             trip = get_trip(trip_dict, postpone=False)
             if trip:
                 trip.position = trip_dict['position']
                 trip.save_to_db()
-                print(80 * '*')
-                print(trip)
-                print()
                 count += 1
             else:
-                print("trip {} dated {} cannot be stored ".format(trip.number, trip.dated))
+                print("trip {} dated {} cannot yet be stored ".format(
+                    trip_dict['number'], trip_dict['date_and_time']))
             print("{} trips out of {} unsaved_trips processed ".format(count, len(unsaved_trips)))
 
-        print("Total trips processed = {}".format(count))
 
     def search_for_trip(self):
-        trip_id = '3939'
-        trip_dated = '2018-06-20'
-        # entered = input("Enter trip/dated to search for ")
-        # trip_id, trip_dated = entered.split('/')
+        # trip_id = '3939'
+        # trip_dated = '2018-06-20'
+        entered = input("Enter trip/dated to search for ")
+        trip_id, trip_dated = entered.split('/')
         trip = Trip.load_by_id(trip_id, trip_dated)
         print(trip)
 
     def quit(self):
         print("adiós")
         sys.exit(0)
-
-
-# print("Building {} unsaved_trips :".format(len(unsaved_trips)))
-# count = 0
-# trips_created = 0
-# for trip_dict in unsaved_trips:
-#     trip = get_trip(trip_dict, postpone=False)
-#     if trip:
-#         trip.save_to_db(position)
-#         trips_created += 1
-#         print("\n\n")
-#         print(trip)
-#         print(50 * '*')
-#         print()
-#     else:
-#         print("trip {} dated {} cannot be stored ".format(trip.number, trip.dated))
-#     count += 1
-#     print("{} trips out of {} unsaved_trips processed ".format(count, len(unsaved_trips)))
-#
-# print("Total trips processed = {}".format(trips_created))
-
-# for file_name in file_names:
-#     with open(pbs_path + file_name) as fp:
-#         print("file name : ", file_name)
-#         position = input("Is this a PBS file for EJE/SOB? ")
-#         content = fp.read()
-#     unsaved_trips = []
-#     trips_created = 0
-#     for trip_match in trip_RE.finditer(content):
-#         trip_dict = trip_match.groupdict()
-#         trip_dict['position'] = position
-#         trip = get_trip(trip_dict, postpone=True)
-#         if trip:
-#             trip.save_to_db(trip_dict['position'])
-#             print("Trip {} dated {}".format(trip.number, trip.dated))
-#             trips_created += 1
-#         else:
-#             unsaved_trips.append(trip_match.groupdict())
-#
-# print("Building {} unsaved_trips :".format(len(unsaved_trips)))
-# count = 0
-# for trip_dict in unsaved_trips:
-#     trip = get_trip(trip_dict, postpone=False)
-#     if trip:
-#         trip.save_to_db(position)
-#         trips_created += 1
-#         print(trip)
-#         print(50*'*')
-#         print()
-#     else:
-#         print("trip {} dated {} cannot be stored ".format(trip.number, trip.dated))
-#     count += 1
-#     print("{} trips out of {} unsaved_trips processed ".format(count, len(unsaved_trips)))
-#
-# print("Total trips processed = {}".format(trips_created))
 
 if __name__ == '__main__':
     Menu().run()
