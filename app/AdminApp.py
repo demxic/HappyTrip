@@ -168,6 +168,7 @@ def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
     else:
         dt_tracker.forward(str(flight.duration))
     flight.name = flight_dict['name']
+    # TODO : No está guardando los equipos cuando es del tipo DHD
     return flight
 
 
@@ -310,7 +311,6 @@ class Menu:
                 print("\n file name : ", file_name)
                 position = input("Is this a PBS file for EJE or SOB? ")
                 content = fp.read()
-
                 # 2. Turn each read trip into a clearer dictionary format
                 for trip_match in trip_RE.finditer(content):
                     json_trip = get_json_trip(trip_match.groupdict())
@@ -346,8 +346,6 @@ class Menu:
 
 
     def search_for_trip(self):
-        # trip_id = '3939'
-        # trip_dated = '2018-06-20'
         entered = input("Enter trip/dated to search for ")
         trip_id, trip_dated = entered.split('/')
         trip = Trip.load_by_id(trip_id, trip_dated)

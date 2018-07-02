@@ -673,7 +673,7 @@ class Trip(object):
     @classmethod
     def load_by_id(cls, trip_id, dated):
         with CursorFromConnectionPool() as cursor:
-            cursor.execute('SELECT flight_id, report, rel, trip_date FROM public.duty_days '
+            cursor.execute('SELECT flight_id, report, rel, trip_date, dh FROM public.duty_days '
                            'INNER JOIN flights ON flight_id = flights.id '
                            'WHERE trip_id = %s AND trip_date = %s '
                            'ORDER BY scheduled_departure_date, scheduled_departure_time ASC;',
@@ -685,6 +685,9 @@ class Trip(object):
                     if row[1]:
                         duty_day = DutyDay()
                     flight = Flight.load_from_db_by_id(flight_id=row[0])
+                    if row[4]:
+                        # dh boolean indicates this flight is a DH flight
+                        flight.name = 'DH' + flight.name
                     duty_day.append(flight)
                     if row[2]:
                         trip.append(duty_day)

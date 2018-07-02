@@ -45,3 +45,13 @@ WHERE trip_id = '3939' AND trip_date = '2018-06-20'
 ORDER BY scheduled_departure_date, scheduled_departure_time ASC;
 
 
+-- How many trips stored by position
+SELECT position,
+ COUNT (position)
+FROM public.trips
+GROUP BY
+ position;
+
+
+SELECT * FROM public.flights
+WHERE id = 7409;
