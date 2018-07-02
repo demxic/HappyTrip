@@ -121,7 +121,7 @@ trip_RE = re.compile(r"""
     .*?                             #We don't care for the "CHECK IN AT" legend that follows
     (?P<check_in>\d{2}:\d{2})\s*    #Only for the actual_itinerary check in time
     (?P<dated>\d{2}[A-Z]{3}\d{4})\s*#But we are interested in the trip_match's starting date
-    (?P<duties>.*?)                 #What comes next are all further dutydays to be examined.
+    (?P<duty_days>.*?)              #What comes next are all further dutydays to be examined.
     TOTALS\s*                       #And down here come all credits for the trip_match, just in case
     (?P<tl>\d{1,2}:\d{2})TL\s*
     (?P<bl>\d{1,2}:\d{2})BL\s*

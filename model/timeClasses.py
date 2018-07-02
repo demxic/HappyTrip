@@ -137,7 +137,7 @@ class DateTracker(object):
 class DateTimeTracker(object):
     """Used to keep track of a dt object in order to build Itineraries"""
 
-    def __init__(self, begin):
+    def __init__(self, begin: str):
         self.datetime_format = "%d%b%Y%H:%M"
         self.dt = datetime.strptime(begin, self.datetime_format)
 

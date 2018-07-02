@@ -127,15 +127,37 @@ class Route(object):
         self.departure_airport = departure_airport
         self.arrival_airport = arrival_airport
 
-    def save_to_db(self):
+    def save_to_db(self) -> int:
         with CursorFromConnectionPool() as cursor:
-            try:
-                cursor.execute('INSERT INTO public.routes (flight_number,'
-                               '                           departure_airport, arrival_airport) '
-                               'VALUES (%s, %s, %s)',
-                               (self.flight_number, self.departure_airport, self.arrival_airport))
-            except psycopg2.IntegrityError:
-                print("Route {} already stored! ".format(str(self)))
+            cursor.execute('INSERT INTO public.routes (flight_number, departure_airport, arrival_airport) '
+                           'VALUES (%s, %s, %s)'
+                           'RETURNING id;',
+                           (self.flight_number, self.departure_airport, self.arrival_airport))
+            self.id = cursor.fetchone()[0]
+            return self.id
+
+    def load_route_id(self):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT id FROM public.routes '
+                           '    WHERE flight_number=%s'
+                           '      AND departure_airport=%s'
+                           '      AND arrival_airport=%s',
+                           (self.flight_number, self.departure_airport, self.arrival_airport))
+            route_id = cursor.fetchone()[0]
+            return route_id
+
+    @classmethod
+    def load_from_db_by_id(cls, route_id):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT flight_number, departure_airport, arrival_airport '
+                           '    FROM public.routes '
+                           '    WHERE id=%s',
+                           (route_id, ))
+            route_data = cursor.fetchone()
+
+            return cls(flight_number=route_data[0], departure_airport=route_data[1],
+                       arrival_airport=route_data[2], route_id=route_id)
+
 
     @classmethod
     def load_from_db_by_fields(cls, flight_number, departure_airport, arrival_airport):
@@ -181,6 +203,12 @@ class Itinerary(object):
         delta = self.end.date() - self.begin.date()
         all_dates = (self.begin.date() + timedelta(days=i) for i in range(delta.days + 1))
         return list(all_dates)
+
+    def in_same_month(self):
+        if self.begin.month == self.end.month:
+            return True
+        else:
+            return False
 
     # def compute_credits(self, itinerator=None):
     #     return None
@@ -286,7 +314,7 @@ class Flight(GroundDuty):
         super().__init__(route=route, scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary)
         self.equipment = equipment
         self.carrier = carrier
-        self._id = id
+        self.id = id
         self.is_flight = True
 
     @property
@@ -317,7 +345,30 @@ class Flight(GroundDuty):
                            'RETURNING id;',
                            (self.carrier, self.route.id, self.begin.date(), self.begin.time(),
                             self.duration.as_timedelta(), self.equipment.airplane_code))
-            self._id = cursor.fetchone()[0]
+            self.id = cursor.fetchone()[0]
+
+    def delete(self):
+        """Remove flight from DataBase"""
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('DELETE FROM public.flights '
+                           '    WHERE id = %s',
+                           (self.id,))
+
+    @classmethod
+    def load_from_db_by_id(cls, flight_id):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * FROM public.flights '
+                           'INNER JOIN public.routes ON route_id = routes.id '
+                           'WHERE flights.id=%s', (flight_id,))
+            flight_data = cursor.fetchone()
+            if flight_data:
+                route = Route.load_from_db_by_id(route_id=flight_data[2])
+                itinerary = Itinerary.from_timedelta(begin=datetime.combine(flight_data[3], flight_data[4]),
+                                                     a_timedelta=flight_data[5])
+                equipment = flight_data[6]
+                carrier = flight_data[1]
+                return cls(route=route, scheduled_itinerary=itinerary, equipment=equipment,
+                           carrier=carrier, id=flight_id)
 
     @classmethod
     def load_from_db_by_fields(cls, airline_iata_code: str, scheduled_departure: str, route: Route):
@@ -448,13 +499,13 @@ class DutyDay(object):
         with CursorFromConnectionPool() as cursor:
             report = self.report.time()
             for flight in self.events:
-                if not flight._id:
+                if not flight.id:
                     # First store flight in DB
                     flight.save_to_db()
                 else:
                     cursor.execute('SELECT id FROM public.duty_days '
                                    'WHERE flight_id=%s AND trip_id=%s AND trip_date=%s',
-                                   (flight._id, container_trip.number, container_trip.dated))
+                                   (flight.id, container_trip.number, container_trip.dated))
                     flight_to_trip_id = cursor.fetchone()
                     if not flight_to_trip_id:
                         cursor.execute('INSERT INTO public.duty_days('
@@ -462,13 +513,13 @@ class DutyDay(object):
                                        '            report, dh)'
                                        'VALUES (%s, %s, %s, %s, %s)'
                                        'RETURNING id;',
-                                       (flight._id, container_trip.number, container_trip.dated,
+                                       (flight.id, container_trip.number, container_trip.dated,
                                         report, not flight.name.isdigit()))
                         flight_to_trip_id = cursor.fetchone()[0]
                 report = None
         with CursorFromConnectionPool() as cursor:
             release = self.release.time()
-            cursor.execute('UPDATE public.duty_days ' 
+            cursor.execute('UPDATE public.duty_days '
                            'SET rel = %s '
                            'WHERE id = %s;',
                            (release, flight_to_trip_id))
@@ -502,6 +553,7 @@ class Trip(object):
         self.number = number
         self.duty_days = []
         self.dated = dated
+        self.position = None
         self._credits = {}
 
     @property
@@ -566,8 +618,8 @@ class Trip(object):
                            'WHERE trips.id=%s AND trips.dated=%s', (self.number, self.dated))
             trip_data = cursor.fetchone()
             if not trip_data:
-                cursor.execute('INSERT INTO public.trips (id, dated) '
-                               'VALUES (%s, %s);', (int(self.number), self.dated))
+                cursor.execute('INSERT INTO public.trips (id, dated, position) '
+                               'VALUES (%s, %s, %s);', (self.number, self.dated, self.position))
 
         for duty_day in self.duty_days:
             duty_day.save_to_db(self)
@@ -617,6 +669,26 @@ class Trip(object):
 
         footer = footer_template.format(**self._credits)
         return header + body + footer
+
+    @classmethod
+    def load_by_id(cls, trip_id, dated):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT flight_id, report, rel, trip_date FROM public.duty_days '
+                           'INNER JOIN flights ON flight_id = flights.id '
+                           'WHERE trip_id = %s AND trip_date = %s '
+                           'ORDER BY scheduled_departure_date, scheduled_departure_time ASC;',
+                           (trip_id, dated))
+            trip_data = cursor.fetchall()
+            if trip_data:
+                trip = Trip(number=trip_id, dated=trip_data[0][3])
+                for row in trip_data:
+                    if row[1]:
+                        duty_day = DutyDay()
+                    flight = Flight.load_from_db_by_id(flight_id=row[0])
+                    duty_day.append(flight)
+                    if row[2]:
+                        trip.append(duty_day)
+                return trip
 
 
 class Line(object):

@@ -70,9 +70,9 @@ ALTER TABLE public.equipments
 	
 -- Table: public.flights
 
--- DROP TABLE public.duty_days;
--- DROP TABLE public.trips;
--- DROP TABLE public.flights;
+DROP TABLE public.duty_days;
+DROP TABLE public.trips;
+DROP TABLE public.flights;
 
 CREATE TABLE public.flights
 (

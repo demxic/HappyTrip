@@ -5,6 +5,10 @@ VALUES ('MEX', 'America/Mexico_City', 'low_cost')
 SELECT flight_number, departure_airport, arrival_airport FROM public.routes
 ORDER BY flight_number ASC 
 
+-- Select route_id
+SELECT id from public.routes
+WHERE routes.flight_number = '0786' AND routes.departure_airport = 'GDL' AND routes.arrival_airport = 'FAT';
+
 
 -- Insert into flights table
 INSERT INTO public.flights(
@@ -13,13 +17,16 @@ INSERT INTO public.flights(
 	
 	
 -- Show flights 
-SELECT airline_iata_code AS airline, flight_number as "FLT", scheduled_departure_date AS "  dated  ",
+SELECT airline_iata_code AS airline, flight_number as "FLT", scheduled_departure_date AS "dated",
 		departure_airport AS origin, arrival_airport AS destination,
 	   scheduled_departure_time AS ETD, 
 	   (scheduled_departure_time + scheduled_block) as ETA, scheduled_equipment AS EQ
 FROM public.flights
 JOIN public.routes
-ON routes.id = route_id;
+ON routes.id = route_id
+ORDER BY 
+	"FLT" ASC, 
+	 "dated" ASC;
 
 -- Show trips
 SELECT trip_id, trip_date, report, scheduled_departure_date as "dated", dh, airline_iata_code as "airline", 
