@@ -102,13 +102,13 @@ def get_route(number: str, departure_airport: str, arrival_airport: str) -> Rout
 
 def get_equipment(eq) -> Equipment:
     equipment = session_equipments.get(eq)
-    if equipment is None:
+    if not equipment:
         equipment = Equipment.load_from_db_by_code(eq)
         if not equipment:
             cabin_members = input("Minimum cabin members for a {} ".format(eq))
             equipment = Equipment(eq, cabin_members)
             equipment.save_to_db()
-        session_airports[eq] = equipment
+        session_equipments[eq] = equipment
     return equipment
 
 
@@ -200,6 +200,7 @@ def get_duty_day(dt_tracker, duty_day_dict, postpone):
     dt_tracker.forward(duty_day_dict['layover_duration'])
 
     # Assert that duty day was built properly
+    # TODO : Turn this into an exception clause
     if str(duty_day.duration) != duty_day_dict['dy']:
         print("Something went wrong with this duty day")
         print(duty_day)

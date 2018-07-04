@@ -53,5 +53,8 @@ GROUP BY
  position;
 
 
-SELECT * FROM public.flights
-WHERE id = 7409;
+-- How many DH flights
+SELECT COUNT (id)
+from public.duty_days
+WHERE dh = true
+;
