@@ -5,18 +5,39 @@ Created on 11/04/2015
 """
 import re
 
+roster_data_RE = re.compile(r'''
+    (?P<month>\w{3,10})\s+         #Any month from enero to diciembre (or january to december) 
+    (?P<year>\d{4})\s+             #4 digit year, v.gr. 2018 
+    (?P<header>.+)
+    DH:\s+                         #Header ends when DH:  3:45 is found
+    (?P<DH>\d{1,2}:\d{1,2}).+      
+    DAY.+?DH\s+
+    (?P<body>.*)                   #What comes next is the body
+    ''', re.VERBOSE | re.DOTALL | re.IGNORECASE)
+
 carryInRE = re.compile(r'''
     (?P<day>\d{2})                 #2 digits at start followed by a - or a whitespace
     (?:\s|-)
     (?P<endDay>\w{2})\s+           #The day when the sequence ends (if any)        v.gr. 07-08
     ''', re.VERBOSE)
 
-rosterDayRE = re.compile(r'''
-    (?P<day>\d{2})                 #2 digits at start followed by a - or a whitespace
-    (?:\s|-)
-    (?P<endDay>\w{2})\s+           #The day when the sequence ends (if any)        v.gr. 07-08
-    (?P<name>\w{1,4})\s+           #Two or four alphanumeric name
-    (?P<sequence>.+)?              #Whatever is left
+non_trip_RE = re.compile(r'''
+    (?P<day>\d{2})                 #2 digits at start followed by a - 
+    -
+    (?P<end_day>\d{2})\s+          #The day when the sequence ends (if any)        v.gr. 07-08
+    (?P<name>[A-Z]{1,2}|[A-Z]\d)\s+#One or two letters or a letter and a digit
+    ''', re.VERBOSE | re.DOTALL)
+
+roster_trip_RE = re.compile(r'''
+    (?P<day>\d{2})\s+
+    (?P<end_day>[A-Z]{2})\s+
+    (?P<name>\d{4})\s+
+    (?P<flights>(\w{4,6}\s+\w{3}\s+\d{4}\s+\w{3}\s+\d{4}\s+)+)
+    ''', re.VERBOSE | re.DOTALL | re.IGNORECASE)
+
+roster_date_RE = re.compile(r'''
+    (?P<month>\w{3,10})\s+         #Any month from enero to diciembre (or january to december) 
+    (?P<year>\d{4})\s+             #4 digit year, v.gr. 2018 
     ''', re.VERBOSE)
 
 nameSequenceRE = re.compile(r'''
@@ -32,7 +53,7 @@ itineraryRE = re.compile(r"""
     """, re.VERBOSE)
 
 airItineraryRE = re.compile(r"""
-    (?P<name>\w{4,6})\s            #An opt 2char airlinecode + 4 digit number + " "    v.gr   AM0001, DH0403, 0170
+    (?P<name>\w{4,6})\s          #An opt 2char airlinecode + 4 digit number + " "    v.gr   AM0001, DH0403, 0170
     (?P<origin>[A-Z]{3})\s         #3 letter origin IATA airport code                  v.gr MEX, SCL, JFK
     (?P<begin>\d{4})\s             #4 digit begin time                                 v.gr.   0300, 1825
     (?P<destination>[A-Z]{3})\s    #3 letter destination IATA airport code             v.gr MEX, SCL, JFK

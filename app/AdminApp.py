@@ -65,14 +65,13 @@ TO"""
 
 Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 source = "C:\\Users\\Xico\\PycharmProjects\\HappyTrip\\data\\iata_tzmap.txt"
-pbs_path = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\PBS\\2018 PBS\\201806 PBS\\"
+pbs_path = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\PBS\\2018 PBS\\201805 PBS\\"
 # file_names = ["201806 PBS EJE.txt"]
-file_names = ["201806 PBS EJE.txt", "201806 PBS SOB.txt"]
+file_names = ["201805 PBS EJE.txt", "201805 PBS SOB.txt", "201805 PBS SOB B.txt"]
+pickled_unsaved_trips_file = 'pickled_unsaved_trips'
 session_airports = dict()
 session_routes = dict()
 session_equipments = dict()
-unsaved_trips = list()
-
 
 def get_airport(city):
     airport = session_airports.get(city)
@@ -82,16 +81,16 @@ def get_airport(city):
     return airport
 
 
-def get_route(number: str, departure_airport: str, arrival_airport: str) -> Route:
-    route_key = number + departure_airport + arrival_airport
+def get_route(flight_number: str, departure_airport: Airport, arrival_airport: Airport) -> Route:
+    route_key = flight_number + departure_airport.iata_code + arrival_airport.iata_code
     if route_key not in session_routes.keys():
         # Route has not been loaded from the DB
-        route = Route.load_from_db_by_fields(flight_number=number,
-                                             departure_airport=departure_airport,
-                                             arrival_airport=arrival_airport)
+        route = Route.load_from_db_by_fields(flight_number=flight_number,
+                                             departure_airport=departure_airport.iata_code,
+                                             arrival_airport=arrival_airport.iata_code)
         if not route:
             # Route must be created and stored into DB
-            route = Route(number=number, departure_airport=departure_airport,
+            route = Route(flight_number=flight_number, departure_airport=departure_airport,
                           arrival_airport=arrival_airport)
             route.save_to_db()
             session_routes[route_key] = route
@@ -112,11 +111,65 @@ def get_equipment(eq) -> Equipment:
     return equipment
 
 
+class ZeroBlockTime(Exception):
+    pass
+
+
+class UndefinedBlockTime(Exception):
+    pass
+
+
+class DutyDayBlockError(Exception):
+
+    def __init__(self, duty_day_dict: dict, duty_day: DutyDay) -> None:
+        super().__init__("DutyDay's expected daily time {} is different from actual {}".format(duty_day_dict['dy'],
+                                                                                               duty_day.duration))
+        self.duty_day_dict = duty_day_dict
+        self.duty_day = duty_day
+
+    def delete_invalid_flights(self):
+        found_one_after_dh = False
+        for flight in self.duty_day.events:
+            if not flight.name.isnumeric() or found_one_after_dh:
+                # TODO : Instead of deleting flight, try erasing only the inconsistent data
+                print("Dropping from DataBase flight: {} ".format(flight))
+                flight.delete()
+                found_one_after_dh = True
+
+    def correct_invalid_events(self):
+        for flight in self.duty_day.events:
+            print(flight)
+            r = input("Is flight properly built? y/n").capitalize()
+            if 'N' in r:
+                itinerary_string = input("Enter itinerary as string (date, begin, blk) 31052018 2206 0122 ")
+                itinerary = Itinerary.from_string(itinerary_string)
+                flight.scheduled_itinerary = itinerary
+                flight.update()
+
+
+class TripBlockError(Exception):
+
+    def __init__(self, expected_block_time, trip):
+        super().__init__("Trip's expected block time {} is different from actual {}".format(expected_block_time,
+                                                                                               trip.duration))
+        self.expected_block_time = expected_block_time
+        self.trip = trip
+
+    def delete_invalid_duty_days(self):
+        pass
+
+
+class UnbuiltTripError(Exception):
+    pass
+
+
 def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
                postpone: bool, suggested_blk: str) -> Flight:
     # 1. Get the route
     # take into consideration the last 4 digits Because some flights start with 'DH'
-    route = get_route(flight_dict['name'][-4:], flight_dict['origin'], flight_dict['destination'])
+    origin = get_airport(flight_dict['origin'])
+    destination = get_airport(flight_dict['destination'])
+    route = get_route(flight_dict['name'][-4:], origin, destination)
 
     # 2. We need the airline code
     carrier_code = get_carrier(flight_dict)
@@ -129,19 +182,28 @@ def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
 
     # 4. Create and store flight if not found in the DB
     if not flight:
-        if flight_dict['blk'] != '0000':
-            # 4.a Found a regular flight, create it
-            td = dt_tracker.forward(flight_dict['blk'])
-            itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
-        elif postpone:
-            # 4.b Found a a DH flight, wait for later to create it
-            return None
-        elif suggested_blk != '0000' and suggested_blk.isnumeric():
-            # 4.c Try suggested blk time
-            td = dt_tracker.forward(suggested_blk)
-            itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
-            if not itinerary.in_same_month():
-                # 4.d If itinerary reaches next month, chances are the suggested_blk time won't work
+        try:
+            if flight_dict['blk'] != '0000':
+                # 4.a Found a regular flight, create it
+                td = dt_tracker.forward(flight_dict['blk'])
+                itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
+            elif suggested_blk != '0000' and suggested_blk.isnumeric():
+                # 4.b Found a DH flight in a duty day with a suggested block time
+                td = dt_tracker.forward(suggested_blk)
+                itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
+                if not itinerary.in_same_month():
+                    # Flight reaches next month and therefore it's block time cannot be determined
+                    dt_tracker.backward(suggested_blk)
+                    raise UndefinedBlockTime()
+            else:
+                raise UndefinedBlockTime()
+
+        except UndefinedBlockTime:
+
+            # 4.d Unable to determine flight blk, must enter it manually
+            if postpone:
+                raise UnbuiltTripError()
+            else:
                 print("FLT {} {} {} {} {} {} ".format(dt_tracker.date, flight_dict['name'],
                                                       flight_dict['origin'], flight_dict['begin'],
                                                       flight_dict['destination'], flight_dict['end']))
@@ -150,16 +212,6 @@ def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
                 blk = input("Insert time as HHMM format :")
                 td = dt_tracker.forward(blk)
                 itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
-        else:
-            # 4.d Unable to determine blk time
-            print("FLT {} {} {} {} {} {} ".format(dt_tracker.date, flight_dict['name'],
-                                                  flight_dict['origin'], flight_dict['begin'],
-                                                  flight_dict['destination'], flight_dict['end']))
-            print("unable to determine DH time.")
-            print("")
-            blk = input("Insert flight duration as HHMM format :")
-            td = dt_tracker.forward(blk)
-            itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
 
         equipment = get_equipment(flight_dict['equipment'])
         flight = Flight(route=route, scheduled_itinerary=itinerary,
@@ -167,8 +219,7 @@ def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
         flight.save_to_db()
     else:
         dt_tracker.forward(str(flight.duration))
-    flight.name = flight_dict['name']
-    # TODO : No está guardando los equipos cuando es del tipo DHD
+    flight.dh = not flight_dict['name'].isnumeric()
     return flight
 
 
@@ -194,24 +245,12 @@ def get_duty_day(dt_tracker, duty_day_dict, postpone):
         if flight:
             duty_day.append(flight)
             dt_tracker.forward(flight_dict['turn'])
-        else:
-            return None
     dt_tracker.release()
     dt_tracker.forward(duty_day_dict['layover_duration'])
 
     # Assert that duty day was built properly
-    # TODO : Turn this into an exception clause
     if str(duty_day.duration) != duty_day_dict['dy']:
-        print("Something went wrong with this duty day")
-        print(duty_day)
-        print("Expected daily time ", duty_day_dict['dy'])
-        print("Actual daily time ", duty_day.duration)
-        input()
-        for flight in duty_day.events:
-            if not flight.route.flight_number.isnumeric():
-                print("Deleting flight {} from DataBase ".format(flight))
-                flight.delete()
-                return None
+        raise DutyDayBlockError(duty_day_dict, duty_day)
 
     return duty_day
 
@@ -221,18 +260,23 @@ def get_trip(trip_dict: dict, postpone: bool) -> Trip:
     trip = Trip(number=trip_dict['number'], dated=dt_tracker.date)
 
     for json_dd in trip_dict['duty_days']:
-        duty_day = get_duty_day(dt_tracker, json_dd, postpone)
-        if duty_day:
+        try:
+            duty_day = get_duty_day(dt_tracker, json_dd, postpone)
             trip.append(duty_day)
-        else:
-            return None
 
-    # Assert that trip was built properly
-    if trip.duration.no_trailing_zero() != trip_dict['tafb']:
-        print("trip {} dated {} {} does not match expected TAFB {}".format(
-            trip.number, trip.dated, trip.duration.no_trailing_zero(), trip_dict['tafb']))
-        print(trip)
-        trip = None
+        except DutyDayBlockError as e:
+            print("For trip {0} dated {1}, ".format(trip_dict['number'], trip_dict['dated']), end=' ')
+            print("found inconsistent duty day : ")
+            print("       ", e.duty_day)
+            if postpone:
+                e.delete_invalid_flights()
+                raise UnbuiltTripError
+            else:
+                print("... Correcting for inconsistent duty day: ")
+                e.correct_invalid_events()
+                print("Corrected duty day")
+                print(e.duty_day)
+                trip.append(e.duty_day)
 
     return trip
 
@@ -242,8 +286,7 @@ def get_json_duty_day(duty_day_dict: dict) -> dict:
     Given a dictionary containing random duty_day data, turn it into a dictionary
     that can be stored as a json format
     """
-    duty_day_dict['layover_duration'] = duty_day_dict['layover_duration'] if duty_day_dict[
-        'layover_duration'] else '0000'
+    duty_day_dict['layover_duration'] = duty_day_dict['layover_duration'] if duty_day_dict['layover_duration'] else '0000'
 
     # The last flight in a duty_day must be re-arranged
     dictionary_flights = [f.groupdict() for f in flights_RE.finditer(duty_day_dict['flights'])]
@@ -261,7 +304,7 @@ def get_json_trip(trip_dict: dict) -> dict:
     Given a dictionary containing random trip data, turn it into a dictionary
     that can be stored as a json format
     """
-    trip_dict['date_and_time'] = trip_dict.pop('dated') + trip_dict.pop('check_in')
+    trip_dict['date_and_time'] = trip_dict['dated'] + trip_dict['check_in']
     dds = list()
 
     for duty_day_match in dutyday_RE.finditer(trip_dict['duty_days']):
@@ -270,6 +313,10 @@ def get_json_trip(trip_dict: dict) -> dict:
     trip_dict['duty_days'] = dds
 
     return trip_dict
+
+
+class DutyInsideTripError(object):
+    pass
 
 
 class Menu:
@@ -305,49 +352,72 @@ class Menu:
                 print("{0} is not a valid choice".format(choice))
 
     def read_trips_file(self):
-        json_trip_count = 0
+        unstored_trips = list()
         for file_name in file_names:
             # 1. Read in and clean the txt.file
             with open(pbs_path + file_name, 'r') as fp:
                 print("\n file name : ", file_name)
                 position = input("Is this a PBS file for EJE or SOB? ")
-                content = fp.read()
-                # 2. Turn each read trip into a clearer dictionary format
-                for trip_match in trip_RE.finditer(content):
-                    json_trip = get_json_trip(trip_match.groupdict())
-                    json_trip_count += 1
+                json_trips = self.create_json_trips(fp.read())
+                pending_trips = self.create_trips(json_trips, position, postpone=True)
+                unstored_trips.extend(pending_trips)
+        outfile = open(pbs_path + pickled_unsaved_trips_file, 'wb')
+        pickle.dump(unstored_trips, outfile)
+        outfile.close()
 
-                    # 3. Turn each trip_dict into a Trip object
-                    trip = get_trip(json_trip, postpone=True)
-                    if trip:
-                        trip.position = position
-                        trip.save_to_db()
-                        print("Trip {} dated {}".format(trip.number, trip.dated))
-                    else:
-                        json_trip['position'] = position
-                        unsaved_trips.append(json_trip)
 
-        print("{} trips found! ".format(json_trip_count))
-        print("{} unsaved trips! ".format(len(unsaved_trips)))
+    def create_json_trips(self, content: str) -> dict:
+        """Given a string content return each json_trip within"""
+        # 1. Turn each read trip into a clearer dictionary format
+        for trip_match in trip_RE.finditer(content):
+            json_trip = get_json_trip(trip_match.groupdict())
+            yield json_trip
+
+    def create_trips(self, json_trips, position, postpone=True):
+        # 2. Turn each trip_dict into a Trip object
+        json_trip_count = 0
+        unstored_trips = list()
+        for json_trip in json_trips:
+            if 'position' not in json_trip:
+                json_trip['position'] = position
+            json_trip_count += 1
+            try:
+                # if json_trip['number'] == '3760':
+                #     input("Enter para continuar")
+                trip = get_trip(json_trip, postpone)
+                if trip.duration.no_trailing_zero() != json_trip['tafb']:
+                    raise TripBlockError(json_trip['tafb', trip])
+
+            except TripBlockError as e:
+                # TODO : Granted, there's a trip block error, what actions should be taken to correct it? (missing)
+                print("trip {0.number} dated {0.dated} {0.duaration.no_trailing_zero()}"
+                      "does not match expected TAFB {1}".format(e.trip, e.expected_block_time))
+                print("Trip {0} dated {1} unsaved!".format(json_trip['number'], json_trip['dated']))
+                unstored_trips.append(json_trip)
+
+            except UnbuiltTripError:
+                print("Trip {0} dated {1} unsaved!".format(json_trip['number'], json_trip['dated']))
+                unstored_trips.append(json_trip)
+
+            else:
+                print("Trip {0.number} dated {0.dated} saved".format(trip))
+                trip.position = position
+                trip.save_to_db()
+
+        print("{} json trips found ".format(json_trip_count))
+        return unstored_trips
+
 
     def figure_out_unsaved_trips(self):
-        count = 0
-        print("Building {} unsaved_trips :".format(len(unsaved_trips)))
+        infile = open(pbs_path + pickled_unsaved_trips_file, 'rb')
+        unstored_trips = pickle.load(infile)
+        print("Building {} unsaved_trips :".format(len(unstored_trips)))
         # 1. Let us go over all trips again, some might now be discarded
-        for trip_dict in unsaved_trips:
-            trip = get_trip(trip_dict, postpone=False)
-            if trip:
-                trip.position = trip_dict['position']
-                trip.save_to_db()
-                count += 1
-            else:
-                print("trip {} dated {} cannot yet be stored ".format(
-                    trip_dict['number'], trip_dict['date_and_time']))
-            print("{} trips out of {} unsaved_trips processed ".format(count, len(unsaved_trips)))
-
+        irreparable_trips = self.create_trips(unstored_trips, None, postpone=False)
+        print(" {} unsaved_trips".format(len(irreparable_trips)))
 
     def search_for_trip(self):
-        entered = input("Enter trip/dated to search for ")
+        entered = input("Enter trip/dated to search for ####/DDMMMYYYY")
         trip_id, trip_dated = entered.split('/')
         trip = Trip.load_by_id(trip_id, trip_dated)
         print(trip)

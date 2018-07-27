@@ -6,7 +6,11 @@ Created on 29/12/2015
 A bidline reader should return a bidline
 
 """
-from data.regex import crewstats_no_type, crewstats_with_type, rosterDayRE, airItineraryRE, itineraryRE, carryInRE
+import operator
+
+from app.AdminApp import get_airport, get_route
+from data.regex import crewstats_no_type, crewstats_with_type, airItineraryRE, itineraryRE, carryInRE, \
+    roster_data_RE, non_trip_RE, roster_trip_RE
 from model.elements import Dotdict
 from model.scheduleClasses import Line, Flight, GroundDuty, DutyDay, Trip, Itinerary, Marker, Airport
 from datetime import datetime, timedelta
@@ -14,13 +18,14 @@ from data import rules
 #TODO : Integrate this into my database
 temp_airports_dict = {'MEX': Airport('MEX')}
 #TODO : This is a dummy equipment that should work as a singleton
+session_airports = dict()
 
 class RosterReader(object):
-    def __init__(self, fp=None):
+    def __init__(self, content: str = None):
         """
         Receives an fp iterable and reads out all roster information
         """
-        self.fp = fp
+        self.content = content
         self.crew_stats = None
         self.carry_in = None
         self.roster_days = []
@@ -31,101 +36,56 @@ class RosterReader(object):
 
     def read_data(self):
         """
-        Iterates thru all roster rows and collects data needed to
-        create event objects.
+        Search for all needed information
         Data may be of three types
         - roster_day
         - heather of a roster file
         - crew_stats or information of the crew member
         """
 
-        for row in self.fp:
+        roster_data = roster_data_RE.search(self.content).groupdict()
+        self.month = roster_data['month']
+        self.year = int(roster_data['year'])
+        # Found all crewMember stats. Of particular importance are the
+        # timeZone of the given bidLine.
+        crew_stats = crewstats_no_type.search(roster_data['header']).groupdict()
+        if not crew_stats:
+            crew_stats = crewstats_with_type.search(roster_data['header']).groupdict()
+        self.timeZone = crew_stats.pop('timeZone')
+        self.crew_stats = crew_stats
 
-            if self.carry_in is None and carryInRE.match(row):
-                # Month should start in number 1 or else there is a carry in
-                cin = carryInRE.match(row).groupdict()
-                self.carry_in = int(cin['day']) > 1
+        # Month should start in number 1 or else there is a carry in
+        cin = carryInRE.search(roster_data['body'])
+        first_day_in_roster = cin.groupdict()['day']
+        self.carry_in = int(first_day_in_roster) > 1
 
-            roster_day = rosterDayRE.match(row)
-            if roster_day:
-                # Found a valid row with information of a duty
-                roster_day = clean(roster_day.groupdict())
-                self.roster_days.append(roster_day)
+        for roster_day in non_trip_RE.finditer(roster_data['body']):
+            self.roster_days.append(roster_day.groupdict())
 
-            elif 'SERVICIOS' in row.upper():
-                # Found the header of the roster, extract month and year
-                self.set_date(row)
+        for trip_row_match in roster_trip_RE.finditer(roster_data['body']):
+            roster_day = trip_row_match.groupdict()
+            flights = []
+            for flight in airItineraryRE.finditer(roster_day['flights']):
+                flights.append(flight.groupdict())
+            roster_day['flights'] = flights
+            self.roster_days.append(roster_day)
 
-            elif crewstats_no_type.search(row):
-                # Found all crewMember stats. Of particular importance are the
-                # timeZone of the given bidLine.
-                crew_stats = crewstats_no_type.search(row).groupdict()
-                self.timeZone = crew_stats.pop('timeZone')
-                self.crew_stats = crew_stats
-
-            elif crewstats_with_type.search(row):
-                # Found all crewMember stats. Of particular importance are the
-                # timeZone of the given bidLine.
-                crew_stats = crewstats_with_type.search(row).groupdict()
-                self.timeZone = crew_stats.pop('timeZone')
-                self.crew_stats = crew_stats
-
-    def set_date(self, row):
-        """Given a row with a ___________  MONTH YEAR format string,
-        read its year and month"""
-        rs = row.upper().split()
-        self.year = int(rs.pop())
-        self.month = rs.pop()
-
-
-def clean(roster_day):
-    """
-        Given a roster_day as a String, clean it up and return it as a DotDict
-    """
-    # print("\n\nIam inside the clean(roster_day) method")
-    # print("roster_day (as a Dotdict): ")
-    roster_day = Dotdict(**roster_day)
-    # print("\n\t\t", roster_day)
-    if len(roster_day.name) == 4:
-        # print("the above roster_day belongs to a Trip")
-        # Found information of a trip
-        # Turn all flights in this roster day into a list
-        flights = airItineraryRE.finditer(roster_day.sequence)
-        cleaned_seq = [Dotdict(flight.groupdict()) for flight in flights]
-        # print("And the cleaned_seq from roster_day looks like this: ")
-        # print("\n\t\t", cleaned_seq)
-    else:
-        # Found information of a ground duty
-        try:
-            cleaned_seq = Dotdict(itineraryRE.search(roster_day.sequence).groupdict())
-        except:
-            print("roster_day:")
-            print(roster_day)
-            print("Enter sequence for ", roster_day.name)
-            sequence = input()
-            roster_day.sequence = sequence
-            cleaned_seq = Dotdict(itineraryRE.search(roster_day.sequence).groupdict())
-
-    roster_day.sequence = cleaned_seq
-    # print("This is how roster_day looks after being sample up: ")
-    # print("\n\t\t", roster_day)
-    # print("\n\n")
-
-    return roster_day
+        self.roster_days.sort(key=operator.itemgetter('day'))
 
 
 class Liner(object):
-    """´Turns a Roster Reader into a bidline"""
+    """´Turns a Roster Reader into a line"""
 
     # TODO: Combining two one day-spaced duties into a single Duty Day.
 
-    def __init__(self, date_tracker, roster_days, line_type='scheduled'):
+    def __init__(self, date_tracker, roster_days, line_type='scheduled',
+                 base_iata_code='MEX'):
         """Mandatory arguments"""
         print("wihtin Liner datetracker ", date_tracker)
         self.date_tracker = date_tracker
         self.roster_days = roster_days
-        self.itinerary_builder = ItinBuilder()
         self.line_type = line_type
+        self.base = get_airport(base_iata_code)
         month = self.date_tracker.month
         year = self.date_tracker.year
         self.line = Line(month, year)
@@ -135,15 +95,15 @@ class Liner(object):
         """Returns a Line object containing all data read from the text file
         but now turned into corresponding objects"""
         trip_number_tracker = '0000'
-        for rosterDay in self.roster_days:
-            self.date_tracker.replace(rosterDay.day)
-            if len(rosterDay.name) == 4:
+        for roster_day in self.roster_days:
+            self.date_tracker.replace(roster_day['day'])
+            if len(roster_day['name']) == 4:
                 # Found trip_match information
-                duty_day = self.from_flight_itinerary(rosterDay)
-                trip_number = rosterDay.name
+                duty_day = self.from_flight_itinerary(roster_day)
+                trip_number = roster_day['name']
                 if trip_number != trip_number_tracker:
                     # A new trip_match has been found, let's create it
-                    trip = Trip(trip_number, duty_day.report)
+                    trip = Trip(number=trip_number, dated=self.date_tracker.dated)
                     trip_number_tracker = trip.number
                     trip.append(duty_day)
                     self.line.append(trip)
@@ -159,99 +119,55 @@ class Liner(object):
                     trip.append(duty_day)
                     self.line.duties[-1] = trip
 
-            elif rosterDay.name in ['VA', 'X', 'XX', 'TO']:
-                marker = self.from_marker(rosterDay)
+            elif roster_day['name'] in ['VA', 'X', 'XX', 'TO']:
+                itinerary = self.build_itinerary(roster_day)
+                marker = Marker(name=roster_day['name'], itinerary=itinerary)
                 self.line.append(marker)
-            elif rosterDay.name == 'RZ':
-                # We don't need this marker
-                pass
-            elif len(rosterDay.name) == 2:
-                duty_day = self.from_ground_itinerary(rosterDay)
+            elif len(roster_day['name']) == 2:
+                duty_day = self.from_ground_itinerary(roster_day)
                 self.line.append(duty_day)
             else:
-                self.unrecognized_events.append(rosterDay.name)
+                self.unrecognized_events.append(roster_day['name'])
 
     def from_flight_itinerary(self, roster_day):
         """Given a group of duties, add them to a DutyDay"""
         duty_day = DutyDay()
-        for itin in roster_day.sequence:
-            itinerary = self.itinerary_builder.convert(self.date_tracker.dated, itin.begin, itin.end)
-            origin = temp_airports_dict.setdefault(itin.origin, Airport(itin.origin))
-            destination = temp_airports_dict.setdefault(itin.destination, Airport(itin.destination))
+        for flight in roster_day['flights']:
+            itinerary = Itinerary.from_date_and_strings(self.date_tracker.dated,
+                                                        flight['begin'], flight['end'])
+            origin = get_airport(flight['origin'])
+            destination = get_airport(flight['destination'])
+            route = get_route(flight_number=flight['name'][-4:], departure_airport=origin,
+                              arrival_airport=destination)
             if self.line_type == 'scheduled':
-                f = Flight(name=itin.name, origin=origin, destination=destination,
-                           scheduled_itinerary=itinerary)
+                f = Flight(route=route, scheduled_itinerary=itinerary)
             else:
-                f = Flight(name=itin.name, origin=origin, destination=destination,
-                           actual_itinerary=itinerary)
+                f = Flight(route=route, actual_itinerary=itinerary)
             duty_day.append(f)
         return duty_day
 
     def from_ground_itinerary(self, rD):
         """Given a ground duty, add it to a DutyDay"""
         duty_day = DutyDay()
-        itinerary = self.itinerary_builder.convert(self.date_tracker.dated,
-                                                   rD.sequence['begin'],
-                                                   rD.sequence['end'])
-        origin = temp_airports_dict['MEX']
-        destination = temp_airports_dict['MEX']
+        itinerary = self.build_itinerary(rD)
+        route = get_route(flight_number='9999', departure_airport=self.base,
+                          arrival_airport=self.base)
         if self.line_type == 'scheduled':
-            i = GroundDuty(name=rD.name, scheduled_itinerary=itinerary, origin=origin, destination=destination)
+            i = GroundDuty(route=route, scheduled_itinerary=itinerary)
         else:
-            i = GroundDuty(rD.name, None, itinerary)
+            i = GroundDuty(route=route, actual_itinerary=itinerary)
         duty_day.append(i)
         return duty_day
 
-    def from_marker(self, rD):
+    def build_itinerary(self, rD):
         """return marker data, marker's don't have credits """
-        itinerary = self.itinerary_builder.convert(self.date_tracker.dated,
-                                                   rD.sequence['begin'],
-                                                   rD.sequence['end'])
-        if self.line_type == 'scheduled':
-            marker = Marker(rD.name, itinerary)
-        else:
-            marker = Marker(rD.name, None, itinerary)
-        return marker
+        try:
+            begin = rD['begin']
+            end = rD['end']
+        except KeyError:
+            print("Unknown begin and end times for duty")
+            print("{} {} ".format(self.date_tracker.dated, rD['name']))
+            begin, end = input("Begin and END time as HHMM HHMM ").split()
+        itinerary = Itinerary.from_date_and_strings(self.date_tracker.dated, begin, end)
 
-
-class ItinBuilder(object):
-    """Given string parameters, this adapter will return a dictionary containing the corresponding
-    parameters turned into objects, thus creating Itinerary objects from strings
-    in any given timezone."""
-
-    def __init__(self, airport_where_time=None):
-        """
-        airport_where_time asks for the 3-letter airport code of the timeZone, defaults to None.
-        A None value, indicates local times
-        """
-        # self.dataTZ = citiesDic[airport_where_time].timezone if airport_where_time else None
-        self.dataTZ = airport_where_time
-
-    def convert(self, dated, begin, end):
-        """date should  be a datetime object
-        begin and end should have a %H%M (2345) format
-        origin and destination are three-letter airport codes
-        :type date: datetime.date"""
-
-        begin, end = self.given_time_zone(dated, begin, end)
-        return Itinerary(begin, end)
-
-    @staticmethod
-    def given_time_zone(dated, begin, end):
-        """Generate begin and end datetime objects unaware"""
-
-        formatting = '%H%M'
-        begin_string = datetime.strptime(begin, formatting).time()
-        begin = datetime.combine(dated, begin_string)
-        end_string = datetime.strptime(end, formatting).time()
-        end = datetime.combine(dated, end_string)
-
-        if end < begin:
-            end += timedelta(days=1)
-        # if end_day:
-        #     end.replace(day = int(end_day))
-
-        # begin = self.dataTZ.localize(begin)
-        # end = self.dataTZ.localize(end)
-
-        return begin, end
+        return itinerary

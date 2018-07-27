@@ -2,19 +2,19 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta
 
-from model import creditator
+#from model import creditator
 # from model.elements import DateTracker
 # from model.payment import compensation_dict, PayCheck
 # from model.scheduleClasses import Itinerary, Trip, CrewMember
 # from rosterReaders.lineCreator import Liner
-from model.scheduleClasses import CrewMember, Line, Trip
+from model.scheduleClasses import CrewMember, Trip
 from model.timeClasses import DateTracker
 from model.txtRoster import RosterReader, Liner
 
 #rolFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\roles\\201803.txt"
-#summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\res201803.txt"
-rolFile = "C:\\Users\\demxi\\Google Drive\\Sobrecargo\\roles\\201802.txt"
-summaryFile = "C:\\Users\\demxi\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\res201802.txt"
+summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\201805 - resumen de horas.txt"
+# rolFile = "C:\\Users\\demxi\\Google Drive\\Sobrecargo\\roles\\201802.txt"
+# summaryFile = "C:\\Users\\demxi\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\res201802.txt"
 
 
 class Menu:
@@ -29,7 +29,7 @@ class Menu:
             "4": self.viaticum,
             "5": self.store,
             "6": self.read_flights_summary,
-            "7": self.retrieve_flights_from_database,
+            "7": self.retrieve_duties_from_data_base,
             "8": self.print_components,
             "10": self.quit}
 
@@ -132,8 +132,9 @@ class Menu:
 
     def read_flights_summary(self):
         """Let's read month's flights summary from a given .txt file"""
-        with open(summaryFile) as fp:
-            rr = RosterReader(fp)
+        with open(summaryFile, 'r') as fp:
+            content = fp.read()
+        rr = RosterReader(content)
         print("crew_stats : ", rr.crew_stats)
         print("Carry in within month? ", rr.carry_in)
         print("Roster timeZone ", rr.timeZone)
@@ -143,42 +144,15 @@ class Menu:
         print("\ndatetracker for ", dt)
 
         print("\nCreating a Liner")
-        liner = Liner(dt, rr.roster_days, 'actual_itinerary')
+        liner = Liner(dt, rr.roster_days, 'actual_itinerary', rr.crew_stats['base'])
         liner.build_line()
         self.line = liner.line
 
-    def retrieve_flights_from_database(self):
-        SQL = "SELECT * FROM flights WHERE number = ? AND date = ?"
-        conn = sqlite3.connect('C:\\Users\\Xico\\Dropbox\\PyCharmProjects\\Orgutrip\\data\\flights.db')
-        c = conn.cursor()
-        for duty_day in self.line.return_duty_days():
-            for flight in duty_day.events:
-                print(50 * '*')
-                print("Flight's actual_itinerary itinerary: ", flight.name)
-                print(flight.actual_itinerary)
-                print()
-                rows = c.execute(SQL, [flight.name, flight.begin.date()])
-                row = rows.fetchone()
-                if row:
-                    begin = datetime.strptime(row[0] + row[3], "%Y-%m-%d%H%M")
-                    duration = timedelta(minutes=int(row[5]))
-                    scheduled_itinerary = Itinerary.from_timedelta(begin, duration)
-                    print("Flight's scheduled itinerary: ", flight.name)
-                    flight.published_itinerary = scheduled_itinerary
-                    print(flight.published_itinerary)
-                else:
-                    rows = c.execute(SQL, [flight.name, flight.begin.date() - timedelta(days=1)])
-                    row = rows.fetchone()
-                    if row:
-                        begin = datetime.strptime(row[0] + row[3], "%Y-%m-%d%H%M")
-                        duration = timedelta(minutes=int(row[5]))
-                        scheduled_itinerary = Itinerary.from_timedelta(begin, duration)
-                        print("Flight's scheduled itinerary: ", flight.name)
-                        flight.published_itinerary = scheduled_itinerary
-                        print(flight.published_itinerary)
-                    else:
-                        pass
-        conn.close()
+    def retrieve_duties_from_data_base(self):
+        for duty in self.line.duties:
+            if isinstance(duty, Trip):
+                trip = Trip.load_by_id(duty.number, duty.dated)
+                trip.update_with_actual_itineraries(duty)
 
     def print_components(self):
         for duty in self.line:

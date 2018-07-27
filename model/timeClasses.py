@@ -149,7 +149,7 @@ class DateTimeTracker(object):
         "Moves half an hour ahead"
         self.dt += timedelta(minutes=30)
 
-    def forward(self, time_string: str) -> datetime:
+    def forward(self, time_string: str) -> timedelta:
         """Moves HH hours and MM minutes forward in time.
         time_string may be of type HH:MM or HHMM
         """
@@ -157,6 +157,16 @@ class DateTimeTracker(object):
         mm = int(time_string[-2:])
         td: timedelta = timedelta(hours=hh, minutes=mm)
         self.dt += td
+        return td
+
+    def backward(self, time_string: str) -> timedelta:
+        """Moves HH hours and MM minutes backward in time.
+        time_string may be of type HH:MM or HHMM
+        """
+        hh = int(time_string[:2])
+        mm = int(time_string[-2:])
+        td: timedelta = timedelta(hours=hh, minutes=mm)
+        self.dt -= td
         return td
 
     @property

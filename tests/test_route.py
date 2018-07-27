@@ -13,7 +13,7 @@ class TestRoute(TestCase):
 class TestInit(TestRoute):
 
     def test_flight_number(self):
-        self.assertEqual(self.route.flight_number, '0403')
+        self.assertEqual(self.route.name, '0403')
 
     def test_departure_airport(self):
         self.assertEqual(self.route.departure_airport, self.origin)

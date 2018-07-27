@@ -6,7 +6,7 @@ SELECT flight_number, departure_airport, arrival_airport FROM public.routes
 ORDER BY flight_number ASC 
 
 -- Select route_id
-SELECT id from public.routes
+SELECT * from public.routes
 WHERE routes.flight_number = '0786' AND routes.departure_airport = 'GDL' AND routes.arrival_airport = 'FAT';
 
 
@@ -17,16 +17,33 @@ INSERT INTO public.flights(
 	
 	
 -- Show flights 
-SELECT airline_iata_code AS airline, flight_number as "FLT", scheduled_departure_date AS "dated",
+SELECT flights.id, route_id, airline_iata_code AS airline, flight_number as "FLT", scheduled_departure_date AS "dated",
 		departure_airport AS origin, arrival_airport AS destination,
 	   scheduled_departure_time AS ETD, 
 	   (scheduled_departure_time + scheduled_block) as ETA, scheduled_equipment AS EQ
 FROM public.flights
 JOIN public.routes
 ON routes.id = route_id
+WHERE flight_number = '8541'
 ORDER BY 
 	"FLT" ASC, 
 	 "dated" ASC;
+	 
+-- update flight
+UPDATE public.flights
+SET airline_iata_code = '6D', route_id= 392, scheduled_departure_date= '2018-05-31', 
+	scheduled_departure_time = '22:06', scheduled_block = '01:22', scheduled_equipment = 'EMB'
+WHERE id = 7910
+
+-- update flight
+UPDATE public.flights
+SET airline_iata_code = 'AM', route_id= 397, scheduled_departure_date= '2018-05-31', 
+	scheduled_departure_time = '01:19', scheduled_block = '00:53', scheduled_equipment = '737'
+WHERE id = 7898
+	 
+-- Show route
+SELECT * FROM public.routes
+WHERE flight_number = '2267';
 
 -- Show trips
 SELECT trip_id, trip_date, report, scheduled_departure_date as "dated", dh, airline_iata_code as "airline", 

@@ -128,11 +128,13 @@ class Route(object):
         self.arrival_airport = arrival_airport
 
     def save_to_db(self) -> int:
+        print("save_to_db")
+        print(self)
         with CursorFromConnectionPool() as cursor:
             cursor.execute('INSERT INTO public.routes (flight_number, departure_airport, arrival_airport) '
                            'VALUES (%s, %s, %s)'
                            'RETURNING id;',
-                           (self.flight_number, self.departure_airport, self.arrival_airport))
+                           (self.flight_number, self.departure_airport.iata_code, self.arrival_airport.iata_code))
             self.id = cursor.fetchone()[0]
             return self.id
 
@@ -152,12 +154,11 @@ class Route(object):
             cursor.execute('SELECT flight_number, departure_airport, arrival_airport '
                            '    FROM public.routes '
                            '    WHERE id=%s',
-                           (route_id, ))
+                           (route_id,))
             route_data = cursor.fetchone()
 
             return cls(flight_number=route_data[0], departure_airport=route_data[1],
                        arrival_airport=route_data[2], route_id=route_id)
-
 
     @classmethod
     def load_from_db_by_fields(cls, flight_number, departure_airport, arrival_airport):
@@ -172,9 +173,6 @@ class Route(object):
                 route = cls(route_id=route_id[0], flight_number=flight_number, departure_airport=departure_airport,
                             arrival_airport=arrival_airport)
                 return route
-            # Note that you do not need this because any method without a return clause, returns None as default
-            # else:
-            #     return None
 
     def __str__(self):
         return "{} {} {}".format(self.flight_number, self.departure_airport, self.arrival_airport)
@@ -194,8 +192,35 @@ class Itinerary(object):
         end = begin + a_timedelta
         return cls(begin, end)
 
+    @classmethod
+    def from_date_and_strings(cls, date: datetime.date, begin: str, end: str):
+        """date should  be a datetime.date object
+        begin and end should have a %H%M (2345) format"""
+
+        formatting = '%H%M'
+        begin_string = datetime.strptime(begin, formatting).time()
+        begin = datetime.combine(date, begin_string)
+        end_string = datetime.strptime(end, formatting).time()
+        end = datetime.combine(date, end_string)
+
+        if end < begin:
+            end += timedelta(days=1)
+        return cls(begin, end)
+
+    @classmethod
+    def from_string(cls, input_string: str):
+        """format DDMMYYYY HHMM HHMM 23122019 1340 0320
+        """
+        date, time, duration = input_string.split()
+        hours = int(duration[:-2])
+        minutes = int(duration[-2:])
+        formatting = '%d%m%Y%H%M'
+        begin = datetime.strptime(date+time, formatting)
+        end = begin + timedelta(hours=hours, minutes=minutes)
+        return cls(begin, end)
+
     @property
-    def duration(self):
+    def duration(self) -> Duration:
         return Duration.from_timedelta(self.end - self.begin)
 
     def get_elapsed_dates(self):
@@ -229,52 +254,70 @@ class Marker(object):
     Markers don't account for duty or block time in a given month
     """
 
-    def __init__(self, name: str, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None):
+    def __init__(self, name: str, itinerary: Itinerary = None):
         self.name = name
-        self.scheduled_itinerary = scheduled_itinerary
-        self.actual_itinerary = actual_itinerary
+        self.itinerary = itinerary
         self._credits = None
 
     @property
     def begin(self):
-        return self.actual_itinerary.begin if self.actual_itinerary else self.scheduled_itinerary.begin
+        return self.itinerary.begin if self.itinerary else None
 
     @property
     def end(self):
-        return self.actual_itinerary.end if self.actual_itinerary else self.scheduled_itinerary.end
-
-    @property
-    def report(self):
-        return self.begin
+        return self.itinerary.end if self.itinerary else None
 
     @property
     def duration(self):
         return Duration.from_timedelta(self.end - self.begin)
 
     def __str__(self):
-        template = "{0.name} {0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
+        if self.itinerary:
+            template = "{0.name} {0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
+        else:
+            template = "{0.name}"
         return template.format(self)
 
 
-class GroundDuty(Marker):
+class GroundDuty(object):
     """
     Represents  training, reserve or special assignments.
     Ground duties do account for some credits
     """
 
-    def __init__(self, route: Route = None, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
-                 equipment: Equipment = None):
-        super().__init__(route.flight_number, scheduled_itinerary, actual_itinerary)
+    def __init__(self, route: Route, scheduled_itinerary: Itinerary = None,
+                 actual_itinerary: Itinerary = None, equipment: Equipment = None, id: int=None):
         self.route = route
+        self.scheduled_itinerary = scheduled_itinerary
+        self.actual_itinerary = actual_itinerary
         self.equipment = equipment
+        self.id = id
 
     @property
-    def report(self):
+    def name(self):
+        """Although a GrounDuty is more likely to be a localized event, using Route
+            to store and retrieve information makes for a better class hierarchy"""
+        return self.route.flight_number
+
+    @property
+    def begin(self) -> datetime:
         return self.scheduled_itinerary.begin if self.scheduled_itinerary else self.actual_itinerary.begin
 
     @property
-    def release(self):
+    def end(self) -> datetime:
+        return self.actual_itinerary.end if self.actual_itinerary else self.scheduled_itinerary.end
+
+    @property
+    def report(self) -> datetime:
+        return self.begin
+
+    @property
+    def release(self) -> datetime:
         return self.end
+
+    @property
+    def duration(self) -> Duration:
+        return Duration.from_timedelta(self.end - self.begin)
 
     def compute_credits(self, creditator=None):
         self._credits = {'block': Duration(0), 'dh': Duration(0)}
@@ -305,38 +348,52 @@ class GroundDuty(Marker):
 
 class Flight(GroundDuty):
 
-    def __init__(self, route: Route = None,
-                 scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
-                 equipment: Equipment = None, carrier: Carrier = Carrier, id: int = None):
+    def __init__(self, route: Route, scheduled_itinerary: Itinerary = None, actual_itinerary: Itinerary = None,
+                 equipment: Equipment = None, carrier: str = 'AM', id: int = None, dh=False):
         """
         Holds those necessary fields to represent a Flight Itinerary
         """
-        super().__init__(route=route, scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary)
-        self.equipment = equipment
+        super().__init__(route=route, scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary,
+                         equipment=equipment, id=id)
         self.carrier = carrier
-        self.id = id
+        self.dh = dh
         self.is_flight = True
 
     @property
-    def report(self):
+    def name(self) -> str:
+        """
+        Returns the full flight name, composed of a prefix and a flight_number
+        prefix indicates a DH flight by AM or any other company
+        """
+        prefix = ''
+        if self.dh:
+            if self.carrier == 'AM' or self.carrier == '6D':
+                prefix = 'DH'
+            else:
+                prefix = self.carrier
+        return prefix + self.route.flight_number
+
+    @property
+    def report(self) -> datetime:
         """Flight's report time"""
         return super().report - timedelta(hours=1)
 
     @property
-    def release(self):
+    def release(self) -> datetime:
         """Flights's release time """
         return super().release + timedelta(minutes=30)
 
     def compute_credits(self, creditator=None):
-        if self.name.isdigit():
-            block = self.duration
-            dh = Duration(0)
-        else:
+        if self.dh:
             dh = self.duration
             block = Duration(0)
+        else:
+            block = self.duration
+            dh = Duration(0)
         self._credits = {'block': block, 'dh': dh}
 
-    def save_to_db(self):
+    # TODO : Modify to save a flight with all its known values
+    def save_to_db(self) -> int:
         with CursorFromConnectionPool() as cursor:
             cursor.execute('INSERT INTO public.flights('
                            '            airline_iata_code, route_id, scheduled_departure_date, '
@@ -346,6 +403,7 @@ class Flight(GroundDuty):
                            (self.carrier, self.route.id, self.begin.date(), self.begin.time(),
                             self.duration.as_timedelta(), self.equipment.airplane_code))
             self.id = cursor.fetchone()[0]
+        return self.id
 
     def delete(self):
         """Remove flight from DataBase"""
@@ -353,6 +411,15 @@ class Flight(GroundDuty):
             cursor.execute('DELETE FROM public.flights '
                            '    WHERE id = %s',
                            (self.id,))
+
+    def update(self):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('UPDATE public.flights '
+                           'SET airline_iata_code = %s, route_id = %s, scheduled_departure_date = %s, '
+                           '    scheduled_departure_time = %s, scheduled_block = %s, scheduled_equipment = %s '
+                           'WHERE id = %s;',
+                           (self.carrier, self.route.id, self.begin.date(), self.begin.time(),
+                            self.duration.as_timedelta(), self.equipment.airplane_code, self.id))
 
     @classmethod
     def load_from_db_by_id(cls, flight_id):
@@ -514,7 +581,7 @@ class DutyDay(object):
                                        'VALUES (%s, %s, %s, %s, %s)'
                                        'RETURNING id;',
                                        (flight.id, container_trip.number, container_trip.dated,
-                                        report, not flight.name.isdigit()))
+                                        report, flight.dh))
                         flight_to_trip_id = cursor.fetchone()[0]
                 report = None
         with CursorFromConnectionPool() as cursor:
@@ -523,6 +590,10 @@ class DutyDay(object):
                            'SET rel = %s '
                            'WHERE id = %s;',
                            (release, flight_to_trip_id))
+
+    def update_with_actual_itineraries(self, duty_day):
+        for flight, actual_flight in zip(self.events, duty_day.events):
+            flight.actual_itinerary = actual_flight.actual_itinerary
 
     def __str__(self):
         """The string representation of the current DutyDay"""
@@ -549,7 +620,7 @@ class Trip(object):
         It should be started by passing in a Trip number
     """
 
-    def __init__(self, number: str, dated: datetime.date) -> None:
+    def __init__(self, number: str, dated) -> None:
         self.number = number
         self.duty_days = []
         self.dated = dated
@@ -617,12 +688,14 @@ class Trip(object):
             cursor.execute('SELECT * FROM public.trips '
                            'WHERE trips.id=%s AND trips.dated=%s', (self.number, self.dated))
             trip_data = cursor.fetchone()
+
             if not trip_data:
                 cursor.execute('INSERT INTO public.trips (id, dated, position) '
                                'VALUES (%s, %s, %s);', (self.number, self.dated, self.position))
-
         for duty_day in self.duty_days:
             duty_day.save_to_db(self)
+
+
 
     def __delitem__(self, key):
         del self.duty_days[key]
@@ -671,28 +744,35 @@ class Trip(object):
         return header + body + footer
 
     @classmethod
-    def load_by_id(cls, trip_id, dated):
+    def load_by_id(cls, trip_id: str, dated):
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT flight_id, report, rel, trip_date, dh FROM public.duty_days '
                            'INNER JOIN flights ON flight_id = flights.id '
                            'WHERE trip_id = %s AND trip_date = %s '
                            'ORDER BY scheduled_departure_date, scheduled_departure_time ASC;',
-                           (trip_id, dated))
+                           (int(trip_id), dated))
             trip_data = cursor.fetchall()
             if trip_data:
-                trip = Trip(number=trip_id, dated=trip_data[0][3])
+                trip = cls(number=trip_id, dated=trip_data[0][3])
                 for row in trip_data:
                     if row[1]:
+                        #Begining of a DutyDay
                         duty_day = DutyDay()
                     flight = Flight.load_from_db_by_id(flight_id=row[0])
                     if row[4]:
                         # dh boolean indicates this flight is a DH flight
-                        flight.name = 'DH' + flight.name
+                        flight.dh = True
                     duty_day.append(flight)
                     if row[2]:
+                        #Ending of a DutyDay
                         trip.append(duty_day)
                 return trip
 
+    def update_with_actual_itineraries(self, actual_trip):
+        """Beacuse self.trip already has all published information loaded from the DB,
+        this method allows to insert missing actual information for all duties within"""
+        for duty_day, actual_duty_day in zip(self.duty_days, actual_trip.duty_days):
+            duty_day.update_with_actual_itineraries(duty_day=actual_duty_day)
 
 class Line(object):
     """ Represents an ordered sequence of events for a given month"""
