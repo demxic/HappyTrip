@@ -5,73 +5,362 @@ from datetime import datetime, timedelta, date
 import sys
 
 from data.database import Database
-from data.regex import trip_RE, dutyday_RE, flights_RE
-from model.scheduleClasses import Airport, Trip, Route, Equipment, Flight, Itinerary, DutyDay
+from data.regex import trip_RE, dutyday_RE, flights_RE, reserve_RE
+from model.scheduleClasses import Airport, Trip, Route, Equipment, Flight, Itinerary, DutyDay, GroundDuty
 from model.timeClasses import DateTimeTracker
-
-content = """
-# 3431 CHECK IN AT 20:55
-30JUN2018
-DATE RPT FLIGHT DEPARTS ARRIVES RLS BLK TURN EQ
-30JUN 2055 0194 MEX 2155 TIJ 2335 0340 0046 737
-DH0111 TIJ 0021 GDL 0519 0549 0000 737
-GDL 26:51 0340BL -175CRD 0205TL 0854DY
-02JUL 0840 0782 GDL 0940 LAX 1110 1140 0330 38A
-LAX 11:35 0330BL -370CRD 0000TL 0500DY
-03JUL 2315 0785 LAX 0015 GDL 0531 0601 0316 38A
-GDL 23:29 0316BL -356CRD 0000TL 0446DY
-04JUL 0530 0770 GDL 0630 TIJ 0731 0301 0050 38A
-0773 TIJ 0821 GDL 1330 0309 0131 38A
-DH0253 GDL 1501 MEX 1630 1700 0000 7S8
-0610BL -650CRD 0000TL 1130DY
-TOTALS 2:05TL 2:05BL 00:00CR 92:05TAFB
-# 4047 CHECK IN AT 20:00
-08JUN2018
-DATE RPT FLIGHT DEPARTS ARRIVES RLS BLK TURN EQ
-08JUN 2000 0956 MEX 2100 MTY 2245 2315 0145 7S8
-MTY 30:40 0145BL 0000CRD 0145TL 0315DY
-10JUN 0555 0905 MTY 0655 MEX 0830 0135 0250 7S8
-0543 MEX 1120 CUN 1337 0217 0048 7S8
-0592 CUN 1425 MEX 1655 1725 0230 7S8
-0622BL 0000CRD 0622TL 1130DY
-TOTALS 8:07TL 8:07BL 00:00CR 45:25TAFB
-# 4048 CHECK IN AT 08:40
-06JUN2018
-DATE RPT FLIGHT DEPARTS ARRIVES RLS BLK TURN EQ
-06JUN 0840 1120 MEX 0940 GDL 1104 0124 0056 38A
-0178 GDL 1200 TIJ 1303 0303 0057 38A
-DH0179 TIJ 1400 GDL 1858 1928 0000 38A
-GDL 13:10 0427BL 0258CRD 0725TL 1048DY
-07JUN 0838 0782 GDL 0938 LAX 1110 1140 0332 38A
-LAX 11:35 0332BL 0000CRD 0332TL 0502DY
-08JUN 2315 0785 LAX 0015 GDL 0534 0319 0115 38A
-DH0239 GDL 0649 MEX 0815 0845 0000 7S8
-0319BL 0126CRD 0445TL 0730DY
-TOTALS 15:42TL 11:18BL 04:24CR 48:05TAFB
-# 4049 CHECK IN AT 12:30
-16JUN2018
-DATE RPT FLIGHT DEPARTS ARRIVES RLS BLK TURN EQ
-16JUN 1230 1176 MEX 1330 TIJ 1511 0341 0059 7S8
-1177 TIJ 1610 MEX 2142 2212 0332 7S8
-0713BL 0000CRD 0713TL 0942DY
-TOTALS 7:13TL 7:13BL 00:00CR 9:42TAFB
-# 4049 CHECK IN AT 12:30
-23JUN2018
-DATE RPT FLIGHT DEPARTS ARRIVES RLS BLK TURN EQ
-23JUN 1230 1176 MEX 1330 TIJ 1511 0341 0059 737
-1177 TIJ 1610 MEX 2142 2212 0332 737
-0713BL 0000CRD 0713TL 0942DY
-TO"""
+from collections import defaultdict
 
 Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 source = "C:\\Users\\Xico\\PycharmProjects\\HappyTrip\\data\\iata_tzmap.txt"
 pbs_path = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\PBS\\2018 PBS\\201805 PBS\\"
 # file_names = ["201806 PBS EJE.txt"]
 file_names = ["201805 PBS EJE.txt", "201805 PBS SOB.txt", "201805 PBS SOB B.txt"]
+reserve_files = ["201805 reservas EJE.txt", "201805 reservas SOB.txt"]
 pickled_unsaved_trips_file = 'pickled_unsaved_trips'
 session_airports = dict()
 session_routes = dict()
 session_equipments = dict()
+content = """Trip details created on 2018-04-19 13:04
+
+# 3008
+
+
+
+
+
+
+
+
+CHECK IN AT 00:01
+
+01MAY2018
+FLIGHT
+DEPARTS
+ARRIVES
+RLS
+BLK
+TURN
+EQ
+
+DATE
+RPT
+
+
+
+
+
+
+
+
+01MAY
+0001
+F1
+MEX 0001
+MEX 0155
+0155
+0000
+
+
+
+
+
+
+MEX 22:50
+
+
+
+0000BL 0154CRD 0154TL 0154DY
+
+02MAY
+0045
+T5
+MEX 0045
+MEX 0155
+0155
+0000
+
+
+
+
+
+
+
+
+
+
+
+0000BL 0110CRD
+0110TL 0110DY
+
+TOTALS
+3:04TL
+0:00BL
+03:04CR
+25:54TAFB
+
+
+# 3013
+
+
+
+
+
+
+
+
+CHECK IN AT 05:01
+
+18MAY2018
+FLIGHT
+DEPARTS
+ARRIVES
+RLS
+BLK
+TURN
+EQ
+
+DATE
+RPT
+
+
+
+
+
+
+
+
+18MAY
+0501
+F1
+MEX 0501
+MEX 1101
+1101
+0000
+
+
+
+
+
+
+MEX 18:00
+
+
+
+0000BL 0600CRD 0600TL 0600DY
+
+19MAY
+0501
+F1
+MEX 0501
+MEX 1101
+1101
+0000
+
+
+
+
+
+
+MEX 21:39
+
+
+
+0000BL 0600CRD 0600TL 0600DY
+
+20MAY
+0840
+F6
+MEX 0840
+MEX 1440
+1440
+0000
+
+
+
+
+
+
+
+
+
+
+
+0000BL 0600CRD
+0600TL 0600DY
+
+TOTALS
+18:00TL
+0:00BL
+18:00CR
+57:39TAFB
+
+
+# 3014
+
+
+
+
+
+
+
+
+CHECK IN AT 05:01
+
+11MAY2018
+FLIGHT
+DEPARTS
+ARRIVES
+RLS
+BLK
+TURN
+EQ
+
+DATE
+RPT
+
+
+
+
+
+
+
+
+11MAY
+0501
+F1
+MEX 0501
+MEX 1101
+1101
+0000
+
+
+
+
+
+
+MEX 18:39
+
+
+
+0000BL 0600CRD 0600TL 0600DY
+
+12MAY
+0540
+F2
+MEX 0540
+MEX 1140
+1140
+0000
+
+
+
+
+
+
+MEX 19:20
+
+
+
+0000BL 0600CRD 0600TL 0600DY
+
+13MAY
+0700
+F3
+MEX 0700
+MEX 1300
+1300
+0000
+
+
+
+
+
+
+
+
+
+
+
+0000BL 0600CRD
+0600TL 0600DY
+
+TOTALS
+18:00TL
+0:00BL
+18:00CR
+55:59TAFB
+
+
+# 3015
+
+
+
+
+
+
+
+
+CHECK IN AT 05:01
+
+17MAY2018
+FLIGHT
+DEPARTS
+ARRIVES
+RLS
+BLK
+TURN
+EQ
+
+DATE
+RPT
+
+
+
+
+
+
+
+
+17MAY
+0501
+F1
+MEX 0501
+MEX 1101
+1101
+0000
+
+
+
+
+
+
+MEX 18:44
+
+
+
+0000BL 0600CRD 0600TL 0600DY
+
+18MAY
+0545
+F2
+MEX 0545
+MEX 1145
+1145
+0000
+
+
+
+
+
+
+MEX 18:20
+
+
+
+0000BL 0600CRD 0600TL 0600DY
+
+19MAY
+"""
 
 def get_airport(city):
     airport = session_airports.get(city)
@@ -327,6 +616,7 @@ class Menu:
             "1": self.read_trips_file,
             "2": self.figure_out_unsaved_trips,
             "3": self.search_for_trip,
+            "4": self.read_reserve_file,
             "10": self.quit}
 
     @staticmethod
@@ -337,6 +627,7 @@ class Menu:
         1. Leer los archivos con los trips.
         2. Trabajar con los trips que no pudieron ser creados.
         3. Buscar un trip en especìfico.
+        4. Leer los archivos con las reservas.
         10. Quit
         ''')
 
@@ -421,6 +712,34 @@ class Menu:
         trip_id, trip_dated = entered.split('/')
         trip = Trip.load_by_id(trip_id, trip_dated)
         print(trip)
+
+    def read_reserve_file(self):
+        for file_name in reserve_files:
+        # 1. Read in and clean the txt.file
+            with open(pbs_path + file_name, 'r') as fp:
+                print("\n file name : ", file_name)
+                position = input("Is this a PBS file for EJE or SOB? ")
+                year = "2018"
+                for reserve_match in reserve_RE.finditer(fp.read()):
+                    reserve_dict = reserve_match.groupdict()
+                    reserve_dict['year'] = year
+                    reserve = self.create_reserve(reserve_dict)
+                    reserve.position = position
+                    reserve.save_to_db()
+
+
+    def create_reserve(self, rd):
+        formatting = '%d%b%Y%H%M'
+        begin = datetime.strptime(rd['date']+rd['year']+rd['begin'], formatting)
+        end = datetime.strptime(rd['date']+rd['year']+rd['end'], formatting)
+        if end < begin:
+            end = end - timedelta(days=1)
+        itinerary = Itinerary(begin, end)
+        origin = get_airport('MEX')
+        destination = get_airport('MEX')
+        route = get_route('0000', origin, destination)
+        route.flight_number = rd['name']
+        return GroundDuty(route=route, scheduled_itinerary=itinerary)
 
     def quit(self):
         print("adiós")

@@ -112,6 +112,16 @@ twoSpaces_RE = re.compile(r'''
     \s+
     ''', re.VERBOSE)
 
+reserve_RE = re.compile(r"""
+    (?P<date>\d{2}[A-Z]{3})\s+       #DD Beginning day and month for the reserve
+    (?:\d{4})\s+                    #reserve's report time... to be ignored
+    (?P<name>\w{2})\s+              #2 letters/numbers indicate a reserve name
+    (?P<origin>[A-Z]{3})\s          #3 letter origin IATA airport code                  v.gr MEX, GDL, TIJ
+    (?P<begin>\d{4})\s+             #4 digit begin time                                 v.gr.   0300, 1825
+    (?P<destination>[A-Z]{3})\s     #3 letter destination IATA airport code             v.gr MEX, GDL, TIJ
+    (?P<end>\d{4})\s+               #4 digit end time
+    """, re.VERBOSE | re.DOTALL)
+
 flights_RE = re.compile(r"""
     (?P<name>\w{4,6})\s+            #4 digits for FLIGHT number
     (?P<origin>[A-Z]{3})\s          #3 letter origin IATA airport code                  v.gr MEX, SCL, JFK

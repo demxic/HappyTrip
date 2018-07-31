@@ -215,7 +215,7 @@ class Itinerary(object):
         hours = int(duration[:-2])
         minutes = int(duration[-2:])
         formatting = '%d%m%Y%H%M'
-        begin = datetime.strptime(date+time, formatting)
+        begin = datetime.strptime(date + time, formatting)
         end = begin + timedelta(hours=hours, minutes=minutes)
         return cls(begin, end)
 
@@ -286,12 +286,14 @@ class GroundDuty(object):
     """
 
     def __init__(self, route: Route, scheduled_itinerary: Itinerary = None,
-                 actual_itinerary: Itinerary = None, equipment: Equipment = None, id: int=None):
+                 actual_itinerary: Itinerary = None, equipment: Equipment = None, id: int = None,
+                 position: str=None):
         self.route = route
         self.scheduled_itinerary = scheduled_itinerary
         self.actual_itinerary = actual_itinerary
         self.equipment = equipment
         self.id = id
+        self.position = position
 
     @property
     def name(self):
@@ -322,6 +324,10 @@ class GroundDuty(object):
     def compute_credits(self, creditator=None):
         self._credits = {'block': Duration(0), 'dh': Duration(0)}
 
+    def __str__(self):
+        return "{0} {1} Begin {2} End {3}".format(self.begin.date(), self.name,
+                                                       self.begin.time(), self.end)
+
     def as_robust_string(self, rpt=4 * '', rls=4 * '', turn=4 * ''):
         """Prints a Ground Duty following this heather template
         DATE  RPT  FLIGHT DEPARTS  ARRIVES  RLS  BLK        TURN       EQ
@@ -344,6 +350,21 @@ class GroundDuty(object):
         self.compute_credits()
         block = self._credits['block']
         return template.format(self, rpt=rpt, rls=rls, turn=turn, block=block)
+
+    def save_to_db(self):
+        with CursorFromConnectionPool() as cursor:
+            # cursor.execute('SELECT * FROM public.reserves '
+            #                'WHERE name=%s, dated=%s ')
+            # gd_data = cursor.fetchone()
+            # if not gd_data:
+            try:
+                cursor.execute('INSERT INTO public.reserves('
+                               '            name, dated, begin, duration, location, gposition) '
+                               'VALUES (%s, %s, %s, %s, %s, %s);',
+                               (self.name, self.begin.date(), self.begin.time(),
+                                self.duration.as_timedelta(), self.route.departure_airport, self.position))
+            except psycopg2.IntegrityError:
+                print("{} has already been stored".format(str(self)))
 
 
 class Flight(GroundDuty):
@@ -695,8 +716,6 @@ class Trip(object):
         for duty_day in self.duty_days:
             duty_day.save_to_db(self)
 
-
-
     def __delitem__(self, key):
         del self.duty_days[key]
 
@@ -756,7 +775,7 @@ class Trip(object):
                 trip = cls(number=trip_id, dated=trip_data[0][3])
                 for row in trip_data:
                     if row[1]:
-                        #Begining of a DutyDay
+                        # Begining of a DutyDay
                         duty_day = DutyDay()
                     flight = Flight.load_from_db_by_id(flight_id=row[0])
                     if row[4]:
@@ -764,7 +783,7 @@ class Trip(object):
                         flight.dh = True
                     duty_day.append(flight)
                     if row[2]:
-                        #Ending of a DutyDay
+                        # Ending of a DutyDay
                         trip.append(duty_day)
                 return trip
 
@@ -773,6 +792,7 @@ class Trip(object):
         this method allows to insert missing actual information for all duties within"""
         for duty_day, actual_duty_day in zip(self.duty_days, actual_trip.duty_days):
             duty_day.update_with_actual_itineraries(duty_day=actual_duty_day)
+
 
 class Line(object):
     """ Represents an ordered sequence of events for a given month"""
