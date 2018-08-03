@@ -16,6 +16,12 @@ class Duration(object):
         minutes = value.total_seconds() / 60
         return cls(minutes)
 
+    @classmethod
+    def from_string(cls, value: str):
+        hours = int(value[0:-2])
+        minutes = int(value[-2:])
+        return cls(minutes=hours*60 + minutes)
+
     def as_timedelta(self):
         return timedelta(minutes=self.minutes)
 

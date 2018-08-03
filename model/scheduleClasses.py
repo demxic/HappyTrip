@@ -13,6 +13,15 @@ class Carrier(object):
 
 
 class Equipment(object):
+    _equipments = {}
+
+    def __new__(cls, airplane_code, *args, **kwargs):
+        equipment = cls._equipments.get(airplane_code)
+        if not equipment:
+            equipment = super().__new__(cls)
+            cls._equipments[airplane_code] = equipment
+
+        return equipment
 
     def __init__(self, airplane_code: str = None, cabin_members: int = None):
         self.airplane_code = airplane_code
@@ -28,15 +37,17 @@ class Equipment(object):
                 print("Already stored")
 
     @classmethod
-    def load_from_db_by_code(cls, code):
-        with CursorFromConnectionPool() as cursor:
-            cursor.execute('SELECT * FROM equipments WHERE code=%s', (code,))
-            equipment_data = cursor.fetchone()
-            if equipment_data:
-                return cls(airplane_code=equipment_data[0], cabin_members=equipment_data[1])
-            # Note that you do not need this because any method without a return clause, returns None as default
-            # else:
-            #     return None
+    def load_from_db_by_code(cls, airplane_code):
+        equipment = cls._equipments.get(airplane_code)
+        if not equipment:
+            with CursorFromConnectionPool() as cursor:
+                cursor.execute('SELECT * FROM equipments WHERE code=%s', (airplane_code,))
+                equipment_data = cursor.fetchone()
+                if equipment_data:
+                    equipment = cls(airplane_code=equipment_data[0], cabin_members=equipment_data[1])
+                    cls._equipments[airplane_code] = equipment
+
+        return equipment
 
     def __str__(self):
         if not self.airplane_code:
@@ -97,15 +108,16 @@ class Airport(object):
 
     @classmethod
     def load_from_db_by_iata_code(cls, iata_code):
-        with CursorFromConnectionPool() as cursor:
-            cursor.execute('SELECT * FROM airports WHERE iata_code=%s', (iata_code,))
-            airport_data = cursor.fetchone()
-            if airport_data:
-                timezone = airport_data[1] + '/' + airport_data[2]
-                return cls(iata_code=airport_data[0], timezone=timezone, viaticum=airport_data[3])
-            # Note that you do not need this because any method without a return clause, returns None as default
-            # else:
-            #     return None
+        airport = cls._airports.get(iata_code)
+        if not airport:
+            with CursorFromConnectionPool() as cursor:
+                cursor.execute('SELECT * FROM airports WHERE iata_code=%s;', (iata_code,))
+                airport_data = cursor.fetchone()
+                if airport_data:
+                    timezone = airport_data[1] + '/' + airport_data[2]
+                    airport = cls(iata_code=airport_data[0], timezone=timezone, viaticum=airport_data[3])
+                    cls._airports[iata_code] = airport
+        return airport
 
     def __str__(self):
         return "{}".format(self.iata_code)
@@ -300,7 +312,7 @@ class GroundDuty(object):
 
     def __init__(self, route: Route, scheduled_itinerary: Itinerary = None,
                  actual_itinerary: Itinerary = None, equipment: Equipment = None, id: int = None,
-                 position: str=None):
+                 position: str = None):
         self.route = route
         self.scheduled_itinerary = scheduled_itinerary
         self.actual_itinerary = actual_itinerary
@@ -318,9 +330,23 @@ class GroundDuty(object):
     def begin(self) -> datetime:
         return self.scheduled_itinerary.begin if self.scheduled_itinerary else self.actual_itinerary.begin
 
+    @begin.setter
+    def begin(self, begin=datetime):
+        if not self.actual_itinerary:
+            self.scheduled_itinerary.begin = begin
+        else:
+            self.actual_itinerary.begin = begin
+
     @property
     def end(self) -> datetime:
         return self.actual_itinerary.end if self.actual_itinerary else self.scheduled_itinerary.end
+
+    @end.setter
+    def end(self, end=datetime):
+        if not self.actual_itinerary:
+            self.scheduled_itinerary.end = end
+        else:
+            self.actual_itinerary.end = end
 
     @property
     def report(self) -> datetime:
@@ -339,7 +365,7 @@ class GroundDuty(object):
 
     def __str__(self):
         return "{0} {1} Begin {2} End {3}".format(self.begin.date(), self.name,
-                                                       self.begin.time(), self.end)
+                                                  self.begin.time(), self.end)
 
     def as_robust_string(self, rpt=4 * '', rls=4 * '', turn=4 * ''):
         """Prints a Ground Duty following this heather template
@@ -379,7 +405,7 @@ class GroundDuty(object):
             except psycopg2.IntegrityError:
                 print("{} has already been stored".format(str(self)))
 
-    def update(self):
+    def update_to_db(self):
         """Will store GroundDuty into database without validating data"""
         with CursorFromConnectionPool() as cursor:
             cursor.execute('UPDATE public.reserves '
@@ -400,10 +426,10 @@ class GroundDuty(object):
                 duration = ground_duty_data[3]
                 location = ground_duty_data[4]
                 self.position = ground_duty_data[5]
-                self.scheduled_itinerary = Itinerary(begin, begin+duration)
-                self.route = Route.load_from_db_by_fields(name='0000', departure_airport=location, arrival_airport=location)
+                self.scheduled_itinerary = Itinerary(begin, begin + duration)
+                self.route = Route.load_from_db_by_fields(name='0000', departure_airport=location,
+                                                          arrival_airport=location)
                 self.route.flight_number = ground_duty_data[0]
-
 
 
 class Flight(GroundDuty):
@@ -467,10 +493,21 @@ class Flight(GroundDuty):
 
     def delete(self):
         """Remove flight from DataBase"""
-        with CursorFromConnectionPool() as cursor:
-            cursor.execute('DELETE FROM public.flights '
-                           '    WHERE id = %s',
-                           (self.id,))
+        try:
+            with CursorFromConnectionPool() as cursor:
+                cursor.execute('DELETE FROM public.flights '
+                               '    WHERE id = %s',
+                               (self.id,))
+        except psycopg2.IntegrityError:
+            # TODO : Better build methods directly into the class
+            print("flight {} ".format(self))
+            print("Can't be deleted because it belongs to another trip ")
+            print("Would you rather update it? ")
+            begin = input("Enter begin time as HHMM :")
+            duration = input("Enter duration as HHMM :")
+            self.begin = self.begin.replace(hour=int(begin[:2]), minute=int(begin[2:]))
+            self.end = self.begin + Duration.from_string(duration).as_timedelta()
+            self.update()
 
     def update(self):
         with CursorFromConnectionPool() as cursor:
@@ -512,7 +549,7 @@ class Flight(GroundDuty):
                 scheduled_departure = datetime.combine(flight_data[3], flight_data[4])
                 scheduled_block = flight_data[5]
                 scheduled_arrival = scheduled_departure + scheduled_block
-                scheduled_equipment = flight_data[6]
+                scheduled_equipment = Equipment(flight_data[6])
                 # actual_departure = datetime.combine(flight_data[7], flight_data[8])
                 actual_block = flight_data[9]
                 # actual_arrival = actual_departure + actual_block
