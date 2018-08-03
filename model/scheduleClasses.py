@@ -47,6 +47,19 @@ class Equipment(object):
 
 
 class Airport(object):
+    """Create airports using the Flyweight pattern
+    Try using the weakref.WeakValueDictionary() if  garbage-collection concerned
+    for our simple app, not needed
+    """
+    _airports = {}
+
+    def __new__(cls, iata_code, *args, **kwargs):
+        airport = cls._airports.get(iata_code)
+        if not airport:
+            airport = super().__new__(cls)
+            cls._airports[iata_code] = airport
+
+        return airport
 
     def __init__(self, iata_code: str, timezone: str = None, viaticum: str = None):
         """
@@ -365,6 +378,32 @@ class GroundDuty(object):
                                 self.duration.as_timedelta(), self.route.departure_airport, self.position))
             except psycopg2.IntegrityError:
                 print("{} has already been stored".format(str(self)))
+
+    def update(self):
+        """Will store GroundDuty into database without validating data"""
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('UPDATE public.reserves '
+                           'SET begin = %s, duration = %s, location = %s, gposition = %s '
+                           'WHERE name = %s and dated = %s;',
+                           (self.scheduled_itinerary.begin.time(), self.duration.as_timedelta(),
+                            self.route.departure_airport, self.position))
+
+    def update_from_database(self):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * FROM public.reserves '
+                           'WHERE name = %s '
+                           'AND dated=%s ',
+                           (self.name, self.report.date()))
+            ground_duty_data = cursor.fetchone()
+            if ground_duty_data:
+                begin = datetime.combine(ground_duty_data[1], ground_duty_data[2])
+                duration = ground_duty_data[3]
+                location = ground_duty_data[4]
+                self.position = ground_duty_data[5]
+                self.scheduled_itinerary = Itinerary(begin, begin+duration)
+                self.route = Route.load_from_db_by_fields(name='0000', departure_airport=location, arrival_airport=location)
+                self.route.flight_number = ground_duty_data[0]
+
 
 
 class Flight(GroundDuty):
