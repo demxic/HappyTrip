@@ -7,18 +7,12 @@ A bidline reader should return a bidline
 
 """
 import operator
-
-from app.AdminApp import get_airport, get_route
+from app.AdminApp import get_route
 from data.regex import crewstats_no_type, crewstats_with_type, airItineraryRE, itineraryRE, carryInRE, \
     roster_data_RE, non_trip_RE, roster_trip_RE
-from model.elements import Dotdict
 from model.scheduleClasses import Line, Flight, GroundDuty, DutyDay, Trip, Itinerary, Marker, Airport
-from datetime import datetime, timedelta
 from data import rules
-#TODO : Integrate this into my database
-temp_airports_dict = {'MEX': Airport('MEX')}
-#TODO : This is a dummy equipment that should work as a singleton
-session_airports = dict()
+
 
 class RosterReader(object):
     def __init__(self, content: str = None):
@@ -85,7 +79,7 @@ class Liner(object):
         self.date_tracker = date_tracker
         self.roster_days = roster_days
         self.line_type = line_type
-        self.base = get_airport(base_iata_code)
+        self.base = Airport(base_iata_code)
         month = self.date_tracker.month
         year = self.date_tracker.year
         self.line = Line(month, year)
@@ -120,10 +114,12 @@ class Liner(object):
                     self.line.duties[-1] = trip
 
             elif roster_day['name'] in ['VA', 'X', 'XX', 'TO']:
+                roster_day['begin'] = '0001'
+                roster_day['end'] = '2359'
                 itinerary = self.build_itinerary(roster_day)
                 marker = Marker(name=roster_day['name'], itinerary=itinerary)
                 self.line.append(marker)
-            elif len(roster_day['name']) == 2:
+            elif len(roster_day['name']) == 2 and roster_day['name'] != 'RZ':
                 duty_day = self.from_ground_itinerary(roster_day)
                 self.line.append(duty_day)
             else:
@@ -135,8 +131,8 @@ class Liner(object):
         for flight in roster_day['flights']:
             itinerary = Itinerary.from_date_and_strings(self.date_tracker.dated,
                                                         flight['begin'], flight['end'])
-            origin = get_airport(flight['origin'])
-            destination = get_airport(flight['destination'])
+            origin = Airport(flight['origin'])
+            destination = Airport(flight['destination'])
             route = get_route(flight_number=flight['name'][-4:], departure_airport=origin,
                               arrival_airport=destination)
             if self.line_type == 'scheduled':
@@ -150,7 +146,7 @@ class Liner(object):
         """Given a ground duty, add it to a DutyDay"""
         duty_day = DutyDay()
         itinerary = self.build_itinerary(rD)
-        route = get_route(flight_number='9999', departure_airport=self.base,
+        route = get_route(flight_number='0000', departure_airport=self.base,
                           arrival_airport=self.base)
         if self.line_type == 'scheduled':
             i = GroundDuty(route=route, scheduled_itinerary=itinerary)
@@ -165,9 +161,11 @@ class Liner(object):
             begin = rD['begin']
             end = rD['end']
         except KeyError:
-            print("Unknown begin and end times for duty")
-            print("{} {} ".format(self.date_tracker.dated, rD['name']))
-            begin, end = input("Begin and END time as HHMM HHMM ").split()
+            begin = '0001'
+            end = '2359'
+            # print("Unknown begin and end times for duty")
+            # print("{} {} ".format(self.date_tracker.dated, rD['name']))
+            # begin, end = input("Begin and END time as HHMM HHMM ").split()
         itinerary = Itinerary.from_date_and_strings(self.date_tracker.dated, begin, end)
 
         return itinerary

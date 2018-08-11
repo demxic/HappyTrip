@@ -8,366 +8,25 @@ from data.database import Database
 from data.regex import trip_RE, dutyday_RE, flights_RE, reserve_RE
 from model.scheduleClasses import Airport, Trip, Route, Equipment, Flight, Itinerary, DutyDay, GroundDuty
 from model.timeClasses import DateTimeTracker
-from collections import defaultdict
 
 Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 source = "C:\\Users\\Xico\\PycharmProjects\\HappyTrip\\data\\iata_tzmap.txt"
-pbs_path = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\PBS\\2018 PBS\\201805 PBS\\"
+pbs_path = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\PBS\\2018 PBS\\201806 PBS\\"
 # file_names = ["201806 PBS EJE.txt"]
-file_names = ["201805 PBS EJE.txt", "201805 PBS SOB.txt", "201805 PBS SOB B.txt"]
-reserve_files = ["201805 reservas EJE.txt", "201805 reservas SOB.txt"]
+file_names = ["201806 PBS vuelos EJE.txt", "201806 PBS vuelos SOB A.txt", "201806 PBS vuelos SOB B.txt"]
+reserve_files = ["201806 PBS reservas EJE.txt", "201806 PBS reservas SOB.txt"]
 pickled_unsaved_trips_file = 'pickled_unsaved_trips'
-session_airports = dict()
 session_routes = dict()
 session_equipments = dict()
-content = """Trip details created on 2018-04-19 13:04
 
-# 3008
 
-
-
-
-
-
-
-
-CHECK IN AT 00:01
-
-01MAY2018
-FLIGHT
-DEPARTS
-ARRIVES
-RLS
-BLK
-TURN
-EQ
-
-DATE
-RPT
-
-
-
-
-
-
-
-
-01MAY
-0001
-F1
-MEX 0001
-MEX 0155
-0155
-0000
-
-
-
-
-
-
-MEX 22:50
-
-
-
-0000BL 0154CRD 0154TL 0154DY
-
-02MAY
-0045
-T5
-MEX 0045
-MEX 0155
-0155
-0000
-
-
-
-
-
-
-
-
-
-
-
-0000BL 0110CRD
-0110TL 0110DY
-
-TOTALS
-3:04TL
-0:00BL
-03:04CR
-25:54TAFB
-
-
-# 3013
-
-
-
-
-
-
-
-
-CHECK IN AT 05:01
-
-18MAY2018
-FLIGHT
-DEPARTS
-ARRIVES
-RLS
-BLK
-TURN
-EQ
-
-DATE
-RPT
-
-
-
-
-
-
-
-
-18MAY
-0501
-F1
-MEX 0501
-MEX 1101
-1101
-0000
-
-
-
-
-
-
-MEX 18:00
-
-
-
-0000BL 0600CRD 0600TL 0600DY
-
-19MAY
-0501
-F1
-MEX 0501
-MEX 1101
-1101
-0000
-
-
-
-
-
-
-MEX 21:39
-
-
-
-0000BL 0600CRD 0600TL 0600DY
-
-20MAY
-0840
-F6
-MEX 0840
-MEX 1440
-1440
-0000
-
-
-
-
-
-
-
-
-
-
-
-0000BL 0600CRD
-0600TL 0600DY
-
-TOTALS
-18:00TL
-0:00BL
-18:00CR
-57:39TAFB
-
-
-# 3014
-
-
-
-
-
-
-
-
-CHECK IN AT 05:01
-
-11MAY2018
-FLIGHT
-DEPARTS
-ARRIVES
-RLS
-BLK
-TURN
-EQ
-
-DATE
-RPT
-
-
-
-
-
-
-
-
-11MAY
-0501
-F1
-MEX 0501
-MEX 1101
-1101
-0000
-
-
-
-
-
-
-MEX 18:39
-
-
-
-0000BL 0600CRD 0600TL 0600DY
-
-12MAY
-0540
-F2
-MEX 0540
-MEX 1140
-1140
-0000
-
-
-
-
-
-
-MEX 19:20
-
-
-
-0000BL 0600CRD 0600TL 0600DY
-
-13MAY
-0700
-F3
-MEX 0700
-MEX 1300
-1300
-0000
-
-
-
-
-
-
-
-
-
-
-
-0000BL 0600CRD
-0600TL 0600DY
-
-TOTALS
-18:00TL
-0:00BL
-18:00CR
-55:59TAFB
-
-
-# 3015
-
-
-
-
-
-
-
-
-CHECK IN AT 05:01
-
-17MAY2018
-FLIGHT
-DEPARTS
-ARRIVES
-RLS
-BLK
-TURN
-EQ
-
-DATE
-RPT
-
-
-
-
-
-
-
-
-17MAY
-0501
-F1
-MEX 0501
-MEX 1101
-1101
-0000
-
-
-
-
-
-
-MEX 18:44
-
-
-
-0000BL 0600CRD 0600TL 0600DY
-
-18MAY
-0545
-F2
-MEX 0545
-MEX 1145
-1145
-0000
-
-
-
-
-
-
-MEX 18:20
-
-
-
-0000BL 0600CRD 0600TL 0600DY
-
-19MAY
-"""
-
-def get_airport(city):
-    airport = session_airports.get(city)
-    if not airport:
-        airport = Airport.load_from_db_by_iata_code(city)
-    session_airports[city] = airport
-    return airport
+#
+# def get_airport(city):
+#     airport = session_airports.get(city)
+#     if not airport:
+#         airport = Airport.load_from_db_by_iata_code(city)
+#     session_airports[city] = airport
+#     return airport
 
 
 def get_route(flight_number: str, departure_airport: Airport, arrival_airport: Airport) -> Route:
@@ -388,16 +47,17 @@ def get_route(flight_number: str, departure_airport: Airport, arrival_airport: A
     return route
 
 
-def get_equipment(eq) -> Equipment:
-    equipment = session_equipments.get(eq)
-    if not equipment:
-        equipment = Equipment.load_from_db_by_code(eq)
-        if not equipment:
-            cabin_members = input("Minimum cabin members for a {} ".format(eq))
-            equipment = Equipment(eq, cabin_members)
-            equipment.save_to_db()
-        session_equipments[eq] = equipment
-    return equipment
+#
+# def get_equipment(eq) -> Equipment:
+#     equipment = session_equipments.get(eq)
+#     if not equipment:
+#         equipment = Equipment.load_from_db_by_code(eq)
+#         if not equipment:
+#             cabin_members = input("Minimum cabin members for a {} ".format(eq))
+#             equipment = Equipment(eq, cabin_members)
+#             equipment.save_to_db()
+#         session_equipments[eq] = equipment
+#     return equipment
 
 
 class ZeroBlockTime(Exception):
@@ -440,7 +100,7 @@ class TripBlockError(Exception):
 
     def __init__(self, expected_block_time, trip):
         super().__init__("Trip's expected block time {} is different from actual {}".format(expected_block_time,
-                                                                                               trip.duration))
+                                                                                            trip.duration))
         self.expected_block_time = expected_block_time
         self.trip = trip
 
@@ -456,8 +116,10 @@ def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
                postpone: bool, suggested_blk: str) -> Flight:
     # 1. Get the route
     # take into consideration the last 4 digits Because some flights start with 'DH'
-    origin = get_airport(flight_dict['origin'])
-    destination = get_airport(flight_dict['destination'])
+    # origin = get_airport(flight_dict['origin'])
+    # destination = get_airport(flight_dict['destination'])
+    origin = Airport(flight_dict['origin'])
+    destination = Airport(flight_dict['destination'])
     route = get_route(flight_dict['name'][-4:], origin, destination)
 
     # 2. We need the airline code
@@ -502,12 +164,13 @@ def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
                 td = dt_tracker.forward(blk)
                 itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
 
-        equipment = get_equipment(flight_dict['equipment'])
+        equipment = Equipment(flight_dict['equipment'])
         flight = Flight(route=route, scheduled_itinerary=itinerary,
                         equipment=equipment, carrier=carrier_code)
         flight.save_to_db()
     else:
         dt_tracker.forward(str(flight.duration))
+
     flight.dh = not flight_dict['name'].isnumeric()
     return flight
 
@@ -575,7 +238,8 @@ def get_json_duty_day(duty_day_dict: dict) -> dict:
     Given a dictionary containing random duty_day data, turn it into a dictionary
     that can be stored as a json format
     """
-    duty_day_dict['layover_duration'] = duty_day_dict['layover_duration'] if duty_day_dict['layover_duration'] else '0000'
+    duty_day_dict['layover_duration'] = duty_day_dict['layover_duration'] if duty_day_dict[
+        'layover_duration'] else '0000'
 
     # The last flight in a duty_day must be re-arranged
     dictionary_flights = [f.groupdict() for f in flights_RE.finditer(duty_day_dict['flights'])]
@@ -656,7 +320,6 @@ class Menu:
         pickle.dump(unstored_trips, outfile)
         outfile.close()
 
-
     def create_json_trips(self, content: str) -> dict:
         """Given a string content return each json_trip within"""
         # 1. Turn each read trip into a clearer dictionary format
@@ -677,11 +340,12 @@ class Menu:
                 #     input("Enter para continuar")
                 trip = get_trip(json_trip, postpone)
                 if trip.duration.no_trailing_zero() != json_trip['tafb']:
-                    raise TripBlockError(json_trip['tafb', trip])
+                    print(json_trip)
+                    raise TripBlockError(json_trip['tafb'], trip)
 
             except TripBlockError as e:
                 # TODO : Granted, there's a trip block error, what actions should be taken to correct it? (missing)
-                print("trip {0.number} dated {0.dated} {0.duaration.no_trailing_zero()}"
+                print("trip {0.number} dated {0.dated} {0.duration}"
                       "does not match expected TAFB {1}".format(e.trip, e.expected_block_time))
                 print("Trip {0} dated {1} unsaved!".format(json_trip['number'], json_trip['dated']))
                 unstored_trips.append(json_trip)
@@ -697,7 +361,6 @@ class Menu:
 
         print("{} json trips found ".format(json_trip_count))
         return unstored_trips
-
 
     def figure_out_unsaved_trips(self):
         infile = open(pbs_path + pickled_unsaved_trips_file, 'rb')
@@ -715,7 +378,7 @@ class Menu:
 
     def read_reserve_file(self):
         for file_name in reserve_files:
-        # 1. Read in and clean the txt.file
+            # 1. Read in and clean the txt.file
             with open(pbs_path + file_name, 'r') as fp:
                 print("\n file name : ", file_name)
                 position = input("Is this a PBS file for EJE or SOB? ")
@@ -727,16 +390,15 @@ class Menu:
                     reserve.position = position
                     reserve.save_to_db()
 
-
     def create_reserve(self, rd):
         formatting = '%d%b%Y%H%M'
-        begin = datetime.strptime(rd['date']+rd['year']+rd['begin'], formatting)
-        end = datetime.strptime(rd['date']+rd['year']+rd['end'], formatting)
+        begin = datetime.strptime(rd['date'] + rd['year'] + rd['begin'], formatting)
+        end = datetime.strptime(rd['date'] + rd['year'] + rd['end'], formatting)
         if end < begin:
             end = end - timedelta(days=1)
         itinerary = Itinerary(begin, end)
-        origin = get_airport('MEX')
-        destination = get_airport('MEX')
+        origin = Airport('MEX')
+        destination = Airport('MEX')
         route = get_route('0000', origin, destination)
         route.flight_number = rd['name']
         return GroundDuty(route=route, scheduled_itinerary=itinerary)
@@ -744,6 +406,7 @@ class Menu:
     def quit(self):
         print("adiós")
         sys.exit(0)
+
 
 if __name__ == '__main__':
     Menu().run()

@@ -2,7 +2,7 @@ DROP TABLE public.airports;
 DROP TYPE viaticum;
 
 CREATE TYPE viaticum AS ENUM ('high_cost', 'low_cost', 'superior_cost', 'border', 'usa', 'new_york', 'madrid', 'paris');
-
+CREATE TYPE gposition AS ENUM ('EJE', 'SOB');
 
 -- Table: public.airports
 
@@ -18,7 +18,7 @@ WITH (
 );
 
 ALTER TABLE public.airports
-    OWNER to postgres;
+    OWNER to xico;
 	
 
 -- Table: public.routes
@@ -27,17 +27,17 @@ ALTER TABLE public.airports
 
 CREATE TABLE public.routes
 (
-    id smallint NOT NULL DEFAULT nextval('routes_id_seq'::regclass),
-    flight_number character(4) COLLATE pg_catalog."default" NOT NULL,
-    departure_airport character(3) COLLATE pg_catalog."default" NOT NULL,
-    arrival_airport character(3) COLLATE pg_catalog."default" NOT NULL,
-    CONSTRAINT routes_pkey PRIMARY KEY (id),
-    CONSTRAINT routes_flight_number_departure_airport_arrival_airport_key UNIQUE (flight_number, departure_airport, arrival_airport),
-    CONSTRAINT routes_arrival_airport_fkey FOREIGN KEY (arrival_airport)
+    route_id serial NOT NULL,
+    name varchar(4) NOT NULL,
+    origin character(3) NOT NULL,
+    destination character(3) NOT NULL,
+    CONSTRAINT routes_pkey PRIMARY KEY (route_id),
+    CONSTRAINT routes_name_origin_destination_key UNIQUE (name, origin, destination),
+    CONSTRAINT routes_destination_fkey FOREIGN KEY (destination)
         REFERENCES public.airports (iata_code) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION,
-    CONSTRAINT routes_departure_airport_fkey FOREIGN KEY (departure_airport)
+    CONSTRAINT routes_origin_fkey FOREIGN KEY (origin)
         REFERENCES public.airlines (iata_code) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION
@@ -48,7 +48,7 @@ WITH (
 TABLESPACE pg_default;
 
 ALTER TABLE public.routes
-    OWNER to postgres;
+    OWNER to xico;
 	
 -- Table: public.equipments
 
@@ -66,8 +66,49 @@ WITH (
 TABLESPACE pg_default;
 
 ALTER TABLE public.equipments
-    OWNER to postgres;
-	
+    OWNER to xico;
+
+-- Table: public.markers
+
+-- DROP TABLE public.markers;
+
+CREATE TABLE public.markers
+(
+    marker_id bigserial NOT NULL,
+    route_id serial NOT NULL,
+    begin timestamp without time zone NOT NULL,
+    duration interval NOT NULL,
+    CONSTRAINT markers_pkey PRIMARY KEY (marker_id),
+    CONSTRAINT markers_route_id_begin_duration_key UNIQUE (route_id, begin, duration)
+)
+WITH (
+    OIDS = FALSE
+);
+
+ALTER TABLE public.markers
+    OWNER to xico;
+
+-- Table: public.reserves
+
+-- DROP TABLE public.reserves;
+
+CREATE TABLE public.reserves
+(
+    reserve_id bigserial NOT NULL,
+    route_id serial NOT NULL,
+    begin timestamp without time zone NOT NULL,
+    duration interval NOT NULL,
+    gposition gposition NOT NULL,
+    CONSTRAINT reserves_pkey PRIMARY KEY (reserve_id),
+    CONSTRAINT reserves_route_id_begin_duration_key UNIQUE (route_id, begin, duration)
+)
+WITH (
+    OIDS = FALSE
+);
+
+ALTER TABLE public.reserves
+    OWNER to xico;
+
 -- Table: public.flights
 
 DROP TABLE public.duty_days;
@@ -76,19 +117,17 @@ DROP TABLE public.flights;
 
 CREATE TABLE public.flights
 (
-    id bigserial NOT NULL,
-    airline_iata_code character(2) COLLATE pg_catalog."default" NOT NULL DEFAULT 'AM'::bpchar,
-    route_id smallint NOT NULL,
-    scheduled_departure_date date NOT NULL,
-    scheduled_departure_time time without time zone NOT NULL,
+    flight_id bigserial NOT NULL,
+    airline_iata_code character(2) NOT NULL DEFAULT 'AM',
+    route_id serial NOT NULL,
+    scheduled_begin timestamp without time zone NOT NULL,
     scheduled_block interval NOT NULL,
-    scheduled_equipment character(3) COLLATE pg_catalog."default",
-    actual_departure_date date,
-    actual_departure_time time without time zone,
+    scheduled_equipment character(3),
+    actual_begin timestamp without time zone,
     actual_block interval,
-    actual_equipment character(3) COLLATE pg_catalog."default",
-    CONSTRAINT flights_pkey PRIMARY KEY (id),
-    CONSTRAINT flights_airline_iata_code_route_id_scheduled_departure_date_key UNIQUE (airline_iata_code, route_id, scheduled_departure_date, scheduled_departure_time),
+    actual_equipment character(3),
+    CONSTRAINT flights_pkey PRIMARY KEY (flight_id),
+    CONSTRAINT flights_airline_iata_code_route_id_scheduled_departure_date_key UNIQUE (airline_iata_code, route_id, scheduled_begin),
     CONSTRAINT flights_actual_equipment_fkey FOREIGN KEY (actual_equipment)
         REFERENCES public.equipments (code) MATCH SIMPLE
         ON UPDATE NO ACTION
@@ -98,7 +137,7 @@ CREATE TABLE public.flights
         ON UPDATE NO ACTION
         ON DELETE NO ACTION,
     CONSTRAINT flights_route_id_fkey FOREIGN KEY (route_id)
-        REFERENCES public.routes (id) MATCH SIMPLE
+        REFERENCES public.routes (route_id) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION,
     CONSTRAINT flights_scheduled_equipment_fkey FOREIGN KEY (scheduled_equipment)
@@ -108,11 +147,10 @@ CREATE TABLE public.flights
 )
 WITH (
     OIDS = FALSE
-)
-TABLESPACE pg_default;
+);
 
 ALTER TABLE public.flights
-    OWNER to postgres;
+    OWNER to xico;
 	
 
 -- Table: public.trips
@@ -125,8 +163,8 @@ CREATE TABLE public.trips
     dated date NOT NULL,
     mxn money,
     usd money,
-	red_eye money,
-	understaffed money,
+	  red_eye money,
+	  understaffed money,
     "position" character varying COLLATE pg_catalog."default",
     CONSTRAINT unique_trip PRIMARY KEY (id, dated),
     CONSTRAINT valid_trip_id CHECK (id < 10000)

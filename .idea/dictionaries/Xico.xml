@@ -2,6 +2,8 @@
   <dictionary name="Xico">
     <words>
       <w>creditator</w>
+      <w>fkey</w>
+      <w>pkey</w>
     </words>
   </dictionary>
 </component>
