@@ -21,6 +21,11 @@ carryInRE = re.compile(r'''
     (?P<endDay>\w{2})\s+           #The day when the sequence ends (if any)        v.gr. 07-08
     ''', re.VERBOSE)
 
+first_duty_RE = re.compile(r'''
+    (\d{2}-\d{2}\s[A-Z]{1,2}\s)|   #Either a ground duty
+    (\d{2}\s[A-Z]{2}\s\d{4}\s)     #Or a trip row
+    ''', re.VERBOSE | re.DOTALL)
+
 non_trip_RE = re.compile(r'''
     (?P<day>\d{2})                 #2 digits at start followed by a - 
     -

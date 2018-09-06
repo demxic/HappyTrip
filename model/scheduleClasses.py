@@ -1,6 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from data.database import CursorFromConnectionPool
-from model.timeClasses import Duration, create_date, create_datetime
+from model.timeClasses import Duration, create_datetime, create_date
 import psycopg2
 
 
@@ -46,6 +46,9 @@ class Equipment(object):
         else:
             eq_string = self.airplane_code
         return eq_string
+
+    def __eq__(self, other) -> bool:
+        return self.airplane_code == other.airplane_code
 
 
 class Airport(object):
@@ -161,8 +164,13 @@ class Route(object):
         route_string = input("Do not input DH condition: ")
         name, departure_airport, arrival_airport = route_string.split()
         route = cls(name=name, origin=Airport(departure_airport),
-                      destination=Airport(arrival_airport))
+                    destination=Airport(arrival_airport))
         return route
+
+    def as_dict(self):
+        "Return route parameters as a dictionary"
+        return {'name': self.name, 'origin' : self.origin, 'destination' : self.destination,
+                'route_id' : self.route_id}
 
     def modify_route(self):
         """This function will update a route"""
@@ -186,7 +194,8 @@ class Route(object):
                                    'VALUES (%s, %s, %s)'
                                    'RETURNING route_id;',
                                    (self.name, self.origin.iata_code, self.destination.iata_code))
-                    self.route_id = cursor.fetchone()[0]
+                    route_id = cursor.fetchone()[0]
+            self.route_id = route_id
         return self.route_id
 
     def load_route_id(self):
@@ -195,10 +204,10 @@ class Route(object):
                            '    WHERE name=%s'
                            '      AND origin=%s'
                            '      AND destination=%s',
-                           (self.name, self.origin, self.destination))
-            route_id = cursor.fetchone()[0]
-            self.route_id = route_id
-            return route_id
+                           (self.name, self.origin.iata_code, self.destination.iata_code))
+            route_id = cursor.fetchone()
+            if route_id:
+                return route_id[0]
 
     @classmethod
     def load_from_db_by_id(cls, route_id):
@@ -208,22 +217,23 @@ class Route(object):
                            '    WHERE route_id=%s',
                            (route_id,))
             route_data = cursor.fetchone()
+            origin = Airport(route_data[1])
+            destination = Airport(route_data[2])
 
-            return cls(name=route_data[0], origin=route_data[1],
-                       destination=route_data[2], route_id=route_id)
+            return cls(name=route_data[0], origin=origin,
+                       destination=destination, route_id=route_id)
 
     @classmethod
-    def load_from_db_by_fields(cls, name, origin, destination):
+    def load_from_db_by_fields(cls, name: str, origin: Airport, destination: Airport):
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT route_id FROM public.routes '
                            '    WHERE name=%s'
                            '      AND origin=%s'
                            '      AND destination=%s',
-                           (name, origin, destination))
+                           (name, origin.iata_code, destination.iata_code))
             route_id = cursor.fetchone()
             if route_id:
-                route = cls(route_id=route_id[0], name=name, origin=origin,
-                            destination=destination)
+                route = cls(route_id=route_id[0], name=name, origin=origin, destination=destination)
                 return route
 
     def __str__(self):
@@ -253,35 +263,33 @@ class Itinerary(object):
         end_datetime = create_datetime()
         return cls(begin=begin_datetime, end=end_datetime)
 
-    # @classmethod
-    # def from_date_and_strings(cls, date: datetime.date, begin: str, end: str):
-    #     """date should  be a datetime.date object
-    #     begin and end should have a %H%M (2345) format"""
-    #
-    #     formatting = '%H%M'
-    #     begin_string = datetime.strptime(begin, formatting).time()
-    #     begin = datetime.combine(date, begin_string)
-    #     end_string = datetime.strptime(end, formatting).time()
-    #     end = datetime.combine(date, end_string)
-    #
-    #     if end < begin:
-    #         end += timedelta(days=1)
-    #     return cls(begin, end)
-    #
     @classmethod
-    def from_string(cls, input_string: str):
-        """
-        format DDMMYYYY HHMM HHMM
-               23122019 1340 0320
-               DATE     begin end
-        """
-        date, begin, end = input_string.split()
-        formatting = '%d%m%Y%H%M'
-        begin = datetime.strptime(date + begin, formatting)
-        end = datetime.strptime(date + end, formatting)
+    def from_date_and_strings(cls, date: datetime.date, begin: str, end: str):
+        """date should  be a datetime.date object
+        begin and end should have a %H%M (2345) format"""
+        begin = '0000' if begin == '2400' else begin
+        end = '0000' if end == '2400' else end
+        formatting = '%H%M'
+        begin_string = datetime.strptime(begin, formatting).time()
+        begin = datetime.combine(date, begin_string)
+        end_string = datetime.strptime(end, formatting).time()
+        end = datetime.combine(date, end_string)
+
         if end < begin:
             end += timedelta(days=1)
         return cls(begin, end)
+
+    @classmethod
+    def from_string(cls, input_string: str):
+        """
+        format DDMMYYYY HHMM    HHMM
+               23122019 1340    0320
+               DATE     begin   blk
+        """
+        date, begin, blk = input_string.split()
+        formatting = '%d%m%Y%H%M'
+        begin = datetime.strptime(date + begin, formatting)
+        return cls.from_timedelta(begin=begin, a_timedelta=Duration.from_string(blk).as_timedelta())
 
     @property
     def duration(self) -> Duration:
@@ -310,6 +318,9 @@ class Itinerary(object):
     def __str__(self):
         template = "{0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
         return template.format(self)
+
+    def __eq__(self, other):
+        return (self.begin == other.begin) and (self.end == other.end)
 
 
 class Event(object):
@@ -359,6 +370,9 @@ class Event(object):
     def duration(self) -> Duration:
         return Duration.from_timedelta(self.end - self.begin)
 
+    def compute_credits(self, creditator=None):
+        self._credits = {'block': Duration(0), 'dh': Duration(0), 'daily': Duration(0)}
+
     def __str__(self) -> str:
         if self.scheduled_itinerary:
             template = "{0.route.name} {0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
@@ -392,7 +406,7 @@ class GroundDuty(Event):
                  equipment=None, event_id: int = None) -> None:
         super().__init__(route=route, scheduled_itinerary=scheduled_itinerary, event_id=event_id)
         self.position = position
-        self.equipment = "   " if not equipment else equipment
+        self.equipment = equipment
 
     @staticmethod
     def create_ground_duty_parameters() -> dict:
@@ -412,9 +426,6 @@ class GroundDuty(Event):
     @property
     def release(self) -> datetime:
         return self.end
-
-    def compute_credits(self, creditator=None):
-        self._credits = {'block': Duration(0), 'dh': Duration(0)}
 
     def as_robust_string(self, rpt=4 * '', rls=4 * '', turn=4 * ''):
         """Prints a Ground Duty following this heather template
@@ -528,7 +539,7 @@ class Flight(GroundDuty):
         answer = input("Is this a (S)cheduled or an (A)ctual itineray? ").capitalize()
         if answer[0] != 'A':
             # Stored itinerary is a scheduled one and not an actual
-            print("Input an actual itinerary? Y/N")
+            answer = input("Input an actual itinerary? Y/N")
             if answer[0] == 'Y':
                 event_parameters['actual_itinerary'] = Itinerary.create_itinerary()
         else:
@@ -538,7 +549,7 @@ class Flight(GroundDuty):
                 event_parameters['actual_itinerary'] = event_parameters['scheduled_itinerary']
                 event_parameters['scheduled_itinerary'] = Itinerary.create_itinerary()
 
-        dh = input("Is this a DH flight? Y ").capitalize()[0]
+        dh = input("Is this a DH flight? Y/N ").capitalize()[0]
         if dh.startswith('Y'):
             event_parameters['dh'] = True
         else:
@@ -548,7 +559,30 @@ class Flight(GroundDuty):
 
         return event_parameters
 
-    def modify_event(self) :
+    @property
+    def begin(self) -> datetime:
+        return self.actual_itinerary.begin if self.actual_itinerary else self.scheduled_itinerary.begin
+
+    @begin.setter
+    def begin(self, new_begin: datetime):
+        if self.actual_itinerary:
+            self.actual_itinerary.begin = new_begin
+        else:
+            self.scheduled_itinerary.begin = new_begin
+
+    @property
+    def end(self) -> datetime:
+        return self.actual_itinerary.end if self.actual_itinerary else self.scheduled_itinerary.end
+
+    @end.setter
+    def end(self, new_end: datetime):
+        if self.actual_itinerary:
+            self.actual_itinerary.end = new_end
+        else:
+            self.scheduled_itinerary.end = new_end
+
+
+    def modify_event(self):
         """Given a flight, modify its actual or scheduled itinerary
             Note: although you could modify other parameters, this will rarely happen
         """
@@ -595,12 +629,18 @@ class Flight(GroundDuty):
     @property
     def report(self) -> datetime:
         """Flight's report time"""
-        return super().report - timedelta(hours=1)
+        if not self.scheduled_itinerary:
+            return self.actual_itinerary.begin - timedelta(hours=1)
+        else:
+            return self.scheduled_itinerary.begin - timedelta(hours=1)
 
     @property
     def release(self) -> datetime:
         """Flights's release time """
-        return super().release + timedelta(minutes=30)
+        if not self.actual_itinerary:
+            return self.scheduled_itinerary.end + timedelta(minutes=30)
+        else:
+            return self.actual_itinerary.end + timedelta(minutes=30)
 
     def compute_credits(self, creditator=None):
         if self.dh:
@@ -612,12 +652,15 @@ class Flight(GroundDuty):
         self._credits = {'block': block, 'dh': dh}
 
     # TODO : Modify to save a flight with all its known values
+    # TODO : ALL save_to_db() methods should be first check that event is not stored before creating it
     def save_to_db(self) -> int:
+        #Is this a new route?
+        self.route.save_to_db()
         if not self.event_id:
             with CursorFromConnectionPool() as cursor:
                 cursor.execute('INSERT INTO public.flights('
                                '            airline_iata_code, route_id, scheduled_begin, '
-                               '            scheduled_block, scheduled_equipment)'
+                               '            scheduled_block, equipment)'
                                'VALUES (%s, %s, %s, %s, %s)'
                                'RETURNING flight_id;',
                                (self.carrier, self.route.route_id, self.begin,
@@ -639,62 +682,121 @@ class Flight(GroundDuty):
             print("Would you rather update it? ")
             begin = input("Enter begin time as HHMM :")
             duration = input("Enter duration as HHMM :")
-            self.begin = self.begin.replace(hour=int(begin[:2]), minute=int(begin[2:]))
+            self.begin.replace(hour=int(begin[:2]), minute=int(begin[2:]))
             self.end = self.begin + Duration.from_string(duration).as_timedelta()
-            self.update()
+            self.update_to_db()
 
     def update_to_db(self):
         with CursorFromConnectionPool() as cursor:
             cursor.execute('UPDATE public.flights '
-                           'SET airline_iata_code = %s, route_id = %s, scheduled_departure_date = %s, '
-                           '    scheduled_departure_time = %s, scheduled_block = %s, scheduled_equipment = %s '
-                           'WHERE id = %s;',
-                           (self.carrier, self.route.id, self.begin.date(), self.begin.time(),
-                            self.duration.as_timedelta(), self.equipment.airplane_code, self.id))
+                           'SET airline_iata_code = %s, route_id = %s, scheduled_begin = %s, '
+                           'scheduled_block = %s, equipment = %s '
+                           'WHERE flight_id = %s;',
+                           (self.carrier, self.route.route_id, self.begin,
+                            self.duration.as_timedelta(), self.equipment.airplane_code, self.event_id))
+
+    def update_from_database(self):
+        """Load all fields for this event, compare each field to its corresponding parameter
+           and update accordingly """
+        loaded_flight = self.load_from_db_by_fields(airline_iata_code=self.carrier, scheduled_begin=self.begin,
+                                                    route=self.route)
+        if not loaded_flight:
+            # This is typical of a return to TARMAC, where flight will now be AM0025 MEX MEX before AM0025 MEX AMS
+            # TODO : Create scheduled itinerary for returned flight automatically instead of prompting for fields
+            print(80*'*')
+            print("Event {} does not exist in DB \n".format(self))
+            print("Create scheduled itinerary for event \n\n")
+            flight_parameters = Flight.create_flight_parameters()
+            created_flight = Flight(**flight_parameters)
+            created_flight.save_to_db()
+            loaded_flight = self.load_from_db_by_fields(airline_iata_code=self.carrier, scheduled_begin=self.begin,
+                                                    route=self.route)
+        self.event_id = loaded_flight.event_id
+
+        # 1. Scheduled itineraries should be the same
+        if self.scheduled_itinerary:
+            if loaded_flight.scheduled_itinerary and (self.scheduled_itinerary != loaded_flight.scheduled_itinerary):
+                print("scheduled_itinerary discrepancy, which one would you like to keep ? ")
+                print("1. {} ".format(self.scheduled_itinerary))
+                print("2. {} ".format(loaded_flight.scheduled_itinerary))
+                option = input()
+                if option != 1:
+                    self.scheduled_itinerary = loaded_flight.scheduled_itinerary
+        elif loaded_flight.scheduled_itinerary:
+            self.scheduled_itinerary = loaded_flight.scheduled_itinerary
+
+        # 2. Actual itineraries should be, and should be the same
+        if self.actual_itinerary:
+            if loaded_flight.actual_itinerary and (self.actual_itinerary != loaded_flight.actual_itinerary):
+                print("actual_itinerary discrepancy, which one would you like to keep ? ")
+                print("1. {} ".format(self.actual_itinerary))
+                print("2. {} ".format(loaded_flight.actual_itinerary))
+                option = input()
+                if option != 1:
+                    self.actual_itinerary = loaded_flight.actual_itinerary
+        elif loaded_flight.actual_itinerary:
+            self.actual_itinerary = loaded_flight.actual_itinerary
+
+        # This is tricky, because the DH condition is loaded in the duty_days table, not in each flight
+        # if self.dh != loaded_flight.dh:
+        #     print(self)
+        #     answer = input("is flight a DH flight? y/n").upper()
+        #     if answer[0] == 'Y':
+        #         self.dh = True
+        #     else:
+        #         self.dh = False
+
+        if loaded_flight.equipment:
+            if self.equipment and (self.equipment != loaded_flight.equipment):
+                print("equipment discrepancy, which one would you like to keep ? ")
+                print("1. {} ".format(self.equipment))
+                print("2. {} ".format(loaded_flight.equipment))
+                option = input()
+                if option != 1:
+                    self.equipment = loaded_flight.equipment
+            else:
+                self.equipment = loaded_flight.equipment
 
     @classmethod
     def load_from_db_by_id(cls, flight_id):
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT * FROM public.flights '
-                           'INNER JOIN public.routes ON route_id = routes.id '
-                           'WHERE flights.id=%s', (flight_id,))
+                           'INNER JOIN public.routes ON flights.route_id = routes.route_id '
+                           'WHERE flights.flight_id=%s', (flight_id,))
             flight_data = cursor.fetchone()
             if flight_data:
                 route = Route.load_from_db_by_id(route_id=flight_data[2])
-                itinerary = Itinerary.from_timedelta(begin=datetime.combine(flight_data[3], flight_data[4]),
-                                                     a_timedelta=flight_data[5])
-                equipment = flight_data[6]
+                itinerary = Itinerary.from_timedelta(begin=flight_data[3],
+                                                     a_timedelta=flight_data[4])
+                equipment = flight_data[5]
                 carrier = flight_data[1]
                 return cls(route=route, scheduled_itinerary=itinerary, equipment=equipment,
-                           carrier=carrier, id=flight_id)
+                           carrier=carrier, event_id=flight_id)
 
     @classmethod
-    def load_from_db_by_fields(cls, airline_iata_code: str, scheduled_departure: str, route: Route):
+    def load_from_db_by_fields(cls, airline_iata_code: str, scheduled_begin: datetime, route: Route):
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT * FROM public.flights '
-                           '    WHERE airline_iata_code = %s'
+                           '    WHERE airline_iata_code = %s '
                            '      AND route_id=%s'
-                           '      AND scheduled_departure_date=%s',
-                           (airline_iata_code, route.id, scheduled_departure.date()))
+                           '      AND scheduled_begin::date=%s',
+                           (airline_iata_code, route.route_id, scheduled_begin.date()))
             flight_data = cursor.fetchone()
             if flight_data:
-                id = flight_data[0]
+                flight_id = flight_data[0]
                 carrier_code = flight_data[1]
-                scheduled_departure = datetime.combine(flight_data[3], flight_data[4])
-                scheduled_block = flight_data[5]
-                scheduled_arrival = scheduled_departure + scheduled_block
-                scheduled_equipment = Equipment(flight_data[6])
-                # actual_departure = datetime.combine(flight_data[7], flight_data[8])
-                actual_block = flight_data[9]
-                # actual_arrival = actual_departure + actual_block
-                actual_equipment = flight_data[10]
-                published_itinerary = Itinerary(scheduled_departure, scheduled_arrival)
-                # actual_itinerary = Itinerary(actual_departure, actual_arrival)
-                actual_itinerary = None
-                # print(flight_number, origin, destination, published_itinerary, actual_itinerary,
-                #       scheduled_equipment, carrier_code)
-                return cls(route=route, scheduled_itinerary=published_itinerary, actual_itinerary=actual_itinerary,
-                           equipment=scheduled_equipment, carrier=carrier_code, id=id)
+                scheduled_begin = flight_data[3]
+                scheduled_block = flight_data[4]
+                equipment = Equipment(flight_data[5])
+                actual_begin = flight_data[6]
+                actual_block = flight_data[7]
+                scheduled_itinerary = Itinerary.from_timedelta(begin=scheduled_begin, a_timedelta=scheduled_block)
+                if actual_begin:
+                    actual_itinerary = Itinerary.from_timedelta(begin=actual_begin, a_timedelta=actual_block)
+                else:
+                    actual_itinerary = None
+                return cls(route=route, scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary,
+                           equipment=equipment, carrier=carrier_code, event_id=flight_id)
 
     def __str__(self):
         template = """
@@ -773,7 +875,7 @@ class DutyDay(object):
 
     @property
     def origin(self):
-        return self.events[0].origin
+        return self.events[0].route.origin
 
     def get_elapsed_dates(self):
         """Returns a list of dates in range [self.report, self.release]"""
@@ -823,21 +925,22 @@ class DutyDay(object):
         with CursorFromConnectionPool() as cursor:
             report = self.report.time()
             for flight in self.events:
-                if not flight.id:
+                if not flight.event_id:
                     # First store flight in DB
+                    # TODO : Before saving, check that flight does not already exist
                     flight.save_to_db()
                 else:
-                    cursor.execute('SELECT id FROM public.duty_days '
+                    cursor.execute('SELECT duty_day_id FROM public.duty_days '
                                    'WHERE flight_id=%s AND trip_id=%s AND trip_date=%s',
-                                   (flight.id, container_trip.number, container_trip.dated))
+                                   (flight.event_id, container_trip.number, container_trip.dated))
                     flight_to_trip_id = cursor.fetchone()
                     if not flight_to_trip_id:
                         cursor.execute('INSERT INTO public.duty_days('
                                        '            flight_id, trip_id, trip_date, '
                                        '            report, dh)'
                                        'VALUES (%s, %s, %s, %s, %s)'
-                                       'RETURNING id;',
-                                       (flight.id, container_trip.number, container_trip.dated,
+                                       'RETURNING duty_day_id;',
+                                       (flight.event_id, container_trip.number, container_trip.dated,
                                         report, flight.dh))
                         flight_to_trip_id = cursor.fetchone()[0]
                 report = None
@@ -845,7 +948,7 @@ class DutyDay(object):
             release = self.release.time()
             cursor.execute('UPDATE public.duty_days '
                            'SET rel = %s '
-                           'WHERE id = %s;',
+                           'WHERE duty_day_id = %s;',
                            (release, flight_to_trip_id))
 
     def update_with_actual_itineraries(self, duty_day):
@@ -897,6 +1000,36 @@ class Trip(object):
             answer = input("Would you like to add a new duty_day to trip?  y/n: ").capitalize()
             print()
         return trip
+
+    @classmethod
+    def load_by_id(cls, trip_number: str, dated: date):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT duty_days.flight_id, report, rel, trip_date, dh FROM public.duty_days '
+                           'INNER JOIN flights ON duty_days.flight_id = flights.flight_id '
+                           'WHERE trip_id = %s AND trip_date = %s '
+                           'ORDER BY scheduled_begin ASC;',
+                           (int(trip_number), dated))
+            trip_data = cursor.fetchall()
+            if trip_data:
+                trip = cls(number=trip_number, dated=trip_data[0][3])
+                for row in trip_data:
+                    if row[1]:
+                        # Beginning of a DutyDay
+                        duty_day = DutyDay()
+                    flight = Flight.load_from_db_by_id(flight_id=row[0])
+                    if not flight:
+                        print("Enter flight as DDMMYYYY AC#### ORG HHMM DES HHMM EQU")
+                        flight_data = input("v.gr. 23062018 0403 MEX 0700 JFK 1300 7S8")
+                        flight = Flight.from_string(flight_data)
+                        flight.save_to_db()
+                    if row[4]:
+                        # dh boolean indicates this flight is a DH flight
+                        flight.dh = True
+                    duty_day.append(flight)
+                    if row[2]:
+                        # Ending of a DutyDay
+                        trip.append(duty_day)
+                return trip
 
     @property
     def report(self):
@@ -954,18 +1087,6 @@ class Trip(object):
         sundays = filter(lambda date: date.isoweekday() == 7, self.get_elapsed_dates())
         return len(list(sundays))
 
-    def save_to_db(self):
-        with CursorFromConnectionPool() as cursor:
-            cursor.execute('SELECT * FROM public.trips '
-                           'WHERE trips.id=%s AND trips.dated=%s', (self.number, self.dated))
-            trip_data = cursor.fetchone()
-
-            if not trip_data:
-                cursor.execute('INSERT INTO public.trips (id, dated, position) '
-                               'VALUES (%s, %s, %s);', (self.number, self.dated, self.position))
-        for duty_day in self.duty_days:
-            duty_day.save_to_db(self)
-
     def __delitem__(self, key):
         del self.duty_days[key]
 
@@ -999,7 +1120,7 @@ class Trip(object):
         for duty_day, rest in zip(self.duty_days, self.rests):
             rest = repr(rest)
             body = body + body_template.format(duty_day=duty_day,
-                                               destination=duty_day.events[-1].route.arrival_airport,
+                                               destination=duty_day.events[-1].route.destination,
                                                rest=rest,
                                                **duty_day._credits)
         else:
@@ -1012,41 +1133,34 @@ class Trip(object):
         footer = footer_template.format(**self._credits)
         return header + body + footer
 
-    @classmethod
-    def load_by_id(cls, trip_id: str, dated):
+    def save_to_db(self):
+        """Save to db should be only concerned with saving a trip regardless of
+           its previous status, i.e. if it has been stored before or not
+        """
         with CursorFromConnectionPool() as cursor:
-            cursor.execute('SELECT flight_id, report, rel, trip_date, dh FROM public.duty_days '
-                           'INNER JOIN flights ON flight_id = flights.id '
-                           'WHERE trip_id = %s AND trip_date = %s '
-                           'ORDER BY scheduled_departure_date, scheduled_departure_time ASC;',
-                           (int(trip_id), dated))
-            trip_data = cursor.fetchall()
-            if trip_data:
-                trip = cls(number=trip_id, dated=trip_data[0][3])
-                for row in trip_data:
-                    if row[1]:
-                        # Beginning of a DutyDay
-                        duty_day = DutyDay()
-                    flight = Flight.load_from_db_by_id(flight_id=row[0])
-                    if not flight:
-                        print("Enter flight as DDMMYYYY AC#### ORG HHMM DES HHMM EQU")
-                        flight_data = input("v.gr. 23062018 0403 MEX 0700 JFK 1300 7S8")
-                        flight = Flight.from_string(flight_data)
-                        flight.save_to_db()
-                    if row[4]:
-                        # dh boolean indicates this flight is a DH flight
-                        flight.dh = True
-                    duty_day.append(flight)
-                    if row[2]:
-                        # Ending of a DutyDay
-                        trip.append(duty_day)
-                return trip
+            cursor.execute('SELECT * FROM public.trips '
+                           'WHERE trips.number=%s AND trips.dated=%s', (self.number, self.dated))
+            trip_data = cursor.fetchone()
+
+            if not trip_data:
+                cursor.execute('INSERT INTO public.trips (number, dated, gposition) '
+                               'VALUES (%s, %s, %s);', (self.number, self.dated, self.position))
+        for duty_day in self.duty_days:
+            duty_day.save_to_db(self)
 
     def update_with_actual_itineraries(self, actual_trip):
         """Beacuse self.trip already has all published information loaded from the DB,
         this method allows to insert missing actual information for all duties within"""
         for duty_day, actual_duty_day in zip(self.duty_days, actual_trip.duty_days):
             duty_day.update_with_actual_itineraries(duty_day=actual_duty_day)
+
+    def update_from_database(self):
+        """ 1. Loop over each event
+            2. Load each event's stored data
+        """
+        for duty_day in self.duty_days:
+            for event in duty_day.events:
+                event.update_from_database()
 
 
 class Line(object):

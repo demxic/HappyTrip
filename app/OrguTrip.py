@@ -2,19 +2,21 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta
 
-#from model import creditator
+from model import creditator
 # from model.elements import DateTracker
 # from model.payment import compensation_dict, PayCheck
 # from model.scheduleClasses import Itinerary, Trip, CrewMember
 # from rosterReaders.lineCreator import Liner
-from model.scheduleClasses import CrewMember, Trip
+from model.scheduleClasses import CrewMember, Trip, GroundDuty, DutyDay
 from model.timeClasses import DateTracker
 from model.txtRoster import RosterReader, Liner
 
-#rolFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\roles\\201803.txt"
-summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\201805 - resumen de horas.txt"
+
+#summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\201805 - resumen de horas.txt"
+#summaryFile = "C:\\Users\\Xico\\Desktop\\franco.txt"
 # rolFile = "C:\\Users\\demxi\\Google Drive\\Sobrecargo\\roles\\201802.txt"
-# summaryFile = "C:\\Users\\demxi\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\res201802.txt"
+rolFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Roles\\2018-Roles\\201809.txt"
+summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\201807-resumen de horas.txt"
 
 
 class Menu:
@@ -151,8 +153,18 @@ class Menu:
     def retrieve_duties_from_data_base(self):
         for duty in self.line.duties:
             if isinstance(duty, Trip):
-                trip = Trip.load_by_id(duty.number, duty.dated)
-                trip.update_with_actual_itineraries(duty)
+                duty.update_from_database()
+            # if isinstance(duty, DutyDay):
+            #     duty.events[0].update_from_database()
+        # for duty in self.line.duties:
+        #     if isinstance(duty, Trip):
+        #         trip = Trip.load_by_id(duty.number, duty.dated)
+        #         if trip:
+        #             trip.update_with_actual_itineraries(duty)
+        #         else:
+        #             print("trip #{}/{} not stored in the database ".format(duty.number, duty.dated))
+        #     if isinstance(duty, DutyDay):
+        #         duty.events[0].update_from_database()
 
     def print_components(self):
         for duty in self.line:

@@ -12,7 +12,7 @@ WHERE routes.flight_number = '0786' AND routes.departure_airport = 'GDL' AND rou
 
 -- Insert into flights table
 INSERT INTO public.flights(
-	airline_iata_code, route_id, scheduled_departure_date, scheduled_departure_time, scheduled_block, scheduled_equipment)
+	airline_iata_code, route_id, scheduled_departure_date, scheduled_departure_time, scheduled_block, equipment)
 	VALUES ('AM', 1, '6/28/2018', '18:35', '11:05', '789');
 	
 	
@@ -20,7 +20,7 @@ INSERT INTO public.flights(
 SELECT flights.id, route_id, airline_iata_code AS airline, flight_number as "FLT", scheduled_departure_date AS "dated",
 		departure_airport AS origin, arrival_airport AS destination,
 	   scheduled_departure_time AS ETD, 
-	   (scheduled_departure_time + scheduled_block) as ETA, scheduled_equipment AS EQ
+	   (scheduled_departure_time + scheduled_block) as ETA, equipment AS EQ
 FROM public.flights
 JOIN public.routes
 ON routes.id = route_id
@@ -32,13 +32,13 @@ ORDER BY
 -- update flight
 UPDATE public.flights
 SET airline_iata_code = '6D', route_id= 392, scheduled_departure_date= '2018-05-31', 
-	scheduled_departure_time = '22:06', scheduled_block = '01:22', scheduled_equipment = 'EMB'
+	scheduled_departure_time = '22:06', scheduled_block = '01:22', equipment = 'EMB'
 WHERE id = 7910
 
 -- update flight
 UPDATE public.flights
 SET airline_iata_code = 'AM', route_id= 397, scheduled_departure_date= '2018-05-31', 
-	scheduled_departure_time = '01:19', scheduled_block = '00:53', scheduled_equipment = '737'
+	scheduled_departure_time = '01:19', scheduled_block = '00:53', equipment = '737'
 WHERE id = 7898
 	 
 -- Show route
@@ -49,7 +49,7 @@ WHERE flight_number = '2267';
 SELECT trip_id, trip_date, report, scheduled_departure_date as "dated", dh, airline_iata_code as "airline", 
 		flight_number as "FLT", departure_airport as origin, scheduled_departure_time as "ETD", 
 		arrival_airport as destination, (scheduled_departure_time + scheduled_block) as "ETA", 
-		rel as "release", scheduled_equipment as "EQ" FROM public.duty_days
+		rel as "release", equipment as "EQ" FROM public.duty_days
 INNER JOIN public.flights ON flight_id = flights.id
 INNER JOIN public.routes ON route_id = routes.id
 ORDER BY trip_id, trip_date, dated, "ETD" ASC;

@@ -38,7 +38,7 @@ CREATE TABLE public.routes
         ON UPDATE NO ACTION
         ON DELETE NO ACTION,
     CONSTRAINT routes_origin_fkey FOREIGN KEY (origin)
-        REFERENCES public.airlines (iata_code) MATCH SIMPLE
+        REFERENCES public.airports (iata_code) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION
 )
@@ -122,16 +122,11 @@ CREATE TABLE public.flights
     route_id serial NOT NULL,
     scheduled_begin timestamp without time zone NOT NULL,
     scheduled_block interval NOT NULL,
-    scheduled_equipment character(3),
+    equipment character(3),
     actual_begin timestamp without time zone,
     actual_block interval,
-    actual_equipment character(3),
     CONSTRAINT flights_pkey PRIMARY KEY (flight_id),
     CONSTRAINT flights_airline_iata_code_route_id_scheduled_departure_date_key UNIQUE (airline_iata_code, route_id, scheduled_begin),
-    CONSTRAINT flights_actual_equipment_fkey FOREIGN KEY (actual_equipment)
-        REFERENCES public.equipments (code) MATCH SIMPLE
-        ON UPDATE NO ACTION
-        ON DELETE NO ACTION,
     CONSTRAINT flights_airline_iata_code_fkey FOREIGN KEY (airline_iata_code)
         REFERENCES public.airlines (iata_code) MATCH SIMPLE
         ON UPDATE NO ACTION
@@ -140,7 +135,7 @@ CREATE TABLE public.flights
         REFERENCES public.routes (route_id) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION,
-    CONSTRAINT flights_scheduled_equipment_fkey FOREIGN KEY (scheduled_equipment)
+    CONSTRAINT flights_equipment_fkey FOREIGN KEY (equipment)
         REFERENCES public.equipments (code) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION
@@ -159,15 +154,15 @@ ALTER TABLE public.flights
 
 CREATE TABLE public.trips
 (
-    id smallint NOT NULL,
+    number smallint NOT NULL,
     dated date NOT NULL,
     mxn money,
     usd money,
 	  red_eye money,
 	  understaffed money,
-    "position" character varying COLLATE pg_catalog."default",
-    CONSTRAINT unique_trip PRIMARY KEY (id, dated),
-    CONSTRAINT valid_trip_id CHECK (id < 10000)
+    gposition gposition,
+    CONSTRAINT unique_trip PRIMARY KEY (number, dated),
+    CONSTRAINT valid_trip_id CHECK (number < 10000)
 )
 WITH (
     OIDS = FALSE
@@ -175,7 +170,7 @@ WITH (
 TABLESPACE pg_default;
 
 ALTER TABLE public.trips
-    OWNER to postgres;
+    OWNER to xico;
 	
 -- Table: public.duty_days
 
@@ -183,24 +178,24 @@ ALTER TABLE public.trips
 
 CREATE TABLE public.duty_days
 (
-    id bigserial NOT NULL,
+    duty_day_id bigserial NOT NULL,
     flight_id bigint NOT NULL,
     trip_id smallint NOT NULL,
     trip_date date NOT NULL,
     report time without time zone,
     rel time without time zone,
     dh boolean NOT NULL,
-    CONSTRAINT duty_days_pkey PRIMARY KEY (id),
-	CONSTRAINT flights_to_trip_in_duty_day UNIQUE (flight_id, trip_id, trip_date),
+    CONSTRAINT duty_day_pkey PRIMARY KEY (duty_day_id),
+	  CONSTRAINT flights_to_trip_in_duty_day UNIQUE (flight_id, trip_id, trip_date),
     CONSTRAINT duty_days_flight_id_fkey FOREIGN KEY (flight_id)
-        REFERENCES public.flights (id) MATCH SIMPLE
+        REFERENCES public.flights (flight_id) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION,
     CONSTRAINT duty_days_trip_id_fkey FOREIGN KEY (trip_date, trip_id)
-        REFERENCES public.trips (dated, id) MATCH SIMPLE
+        REFERENCES public.trips (dated, number) MATCH SIMPLE
         ON UPDATE NO ACTION
         ON DELETE NO ACTION,
-    CONSTRAINT duty_days_id_check CHECK (trip_id < 10000)
+    CONSTRAINT duty_day_id_check CHECK (trip_id < 10000)
 )
 WITH (
     OIDS = FALSE
@@ -208,4 +203,4 @@ WITH (
 TABLESPACE pg_default;
 
 ALTER TABLE public.duty_days
-    OWNER to postgres;
+    OWNER to xico;

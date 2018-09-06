@@ -29,21 +29,19 @@ session_equipments = dict()
 #     return airport
 
 
-def get_route(flight_number: str, departure_airport: Airport, arrival_airport: Airport) -> Route:
-    route_key = flight_number + departure_airport.iata_code + arrival_airport.iata_code
-    if route_key not in session_routes.keys():
+def get_route(name: str, origin: Airport, destination: Airport) -> Route:
+    route_key = name + origin.iata_code + destination.iata_code
+    if route_key not in Route._routes:
         # Route has not been loaded from the DB
-        route = Route.load_from_db_by_fields(flight_number=flight_number,
-                                             departure_airport=departure_airport.iata_code,
-                                             arrival_airport=arrival_airport.iata_code)
+        route = Route.load_from_db_by_fields(name=name,
+                                             origin=origin,
+                                             destination=destination)
         if not route:
             # Route must be created and stored into DB
-            route = Route(flight_number=flight_number, departure_airport=departure_airport,
-                          arrival_airport=arrival_airport)
+            route = Route(name=name, origin=origin, destination=destination)
             route.save_to_db()
-            session_routes[route_key] = route
     else:
-        route = session_routes[route_key]
+        route = Route._routes[route_key]
     return route
 
 
@@ -93,7 +91,7 @@ class DutyDayBlockError(Exception):
                 itinerary_string = input("Enter itinerary as string (date, begin, blk) 31052018 2206 0122 ")
                 itinerary = Itinerary.from_string(itinerary_string)
                 flight.scheduled_itinerary = itinerary
-                flight.update()
+                flight.update_to_db()
 
 
 class TripBlockError(Exception):
@@ -128,7 +126,7 @@ def get_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
     # 3. Find the flight in the DB
     begin = copy(dt_tracker.dt)
     flight = Flight.load_from_db_by_fields(airline_iata_code=carrier_code,
-                                           scheduled_departure=begin,
+                                           scheduled_begin=begin,
                                            route=route)
 
     # 4. Create and store flight if not found in the DB
@@ -312,7 +310,7 @@ class Menu:
             # 1. Read in and clean the txt.file
             with open(pbs_path + file_name, 'r') as fp:
                 print("\n file name : ", file_name)
-                position = input("Is this a PBS file for EJE or SOB? ")
+                position = input("Is this a PBS file for EJE or SOB? ").upper()
                 json_trips = self.create_json_trips(fp.read())
                 pending_trips = self.create_trips(json_trips, position, postpone=True)
                 unstored_trips.extend(pending_trips)
@@ -346,7 +344,7 @@ class Menu:
             except TripBlockError as e:
                 # TODO : Granted, there's a trip block error, what actions should be taken to correct it? (missing)
                 print("trip {0.number} dated {0.dated} {0.duration}"
-                      "does not match expected TAFB {1}".format(e.trip, e.expected_block_time))
+                      " does not match expected TAFB {1}".format(e.trip, e.expected_block_time))
                 print("Trip {0} dated {1} unsaved!".format(json_trip['number'], json_trip['dated']))
                 unstored_trips.append(json_trip)
 
@@ -369,9 +367,12 @@ class Menu:
         # 1. Let us go over all trips again, some might now be discarded
         irreparable_trips = self.create_trips(unstored_trips, None, postpone=False)
         print(" {} unsaved_trips".format(len(irreparable_trips)))
+        outfile = open(pbs_path + pickled_unsaved_trips_file, 'wb')
+        pickle.dump(irreparable_trips, outfile)
+        outfile.close()
 
     def search_for_trip(self):
-        entered = input("Enter trip/dated to search for ####/DDMMMYYYY")
+        entered = input("Enter trip/dated to search for ####/YYYY-MM-DD ")
         trip_id, trip_dated = entered.split('/')
         trip = Trip.load_by_id(trip_id, trip_dated)
         print(trip)
@@ -381,7 +382,7 @@ class Menu:
             # 1. Read in and clean the txt.file
             with open(pbs_path + file_name, 'r') as fp:
                 print("\n file name : ", file_name)
-                position = input("Is this a PBS file for EJE or SOB? ")
+                position = input("Is this a PBS file for EJE or SOB? ").capitalize()
                 year = "2018"
                 for reserve_match in reserve_RE.finditer(fp.read()):
                     reserve_dict = reserve_match.groupdict()

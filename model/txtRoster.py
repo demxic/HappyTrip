@@ -8,9 +8,9 @@ A bidline reader should return a bidline
 """
 import operator
 from app.AdminApp import get_route
-from data.regex import crewstats_no_type, crewstats_with_type, airItineraryRE, itineraryRE, carryInRE, \
-    roster_data_RE, non_trip_RE, roster_trip_RE
-from model.scheduleClasses import Line, Flight, GroundDuty, DutyDay, Trip, Itinerary, Marker, Airport
+from data.regex import crewstats_no_type, crewstats_with_type, airItineraryRE, carryInRE, \
+    roster_data_RE, non_trip_RE, roster_trip_RE, first_duty_RE
+from model.scheduleClasses import Line, Flight, GroundDuty, DutyDay, Trip, Itinerary, Event, Airport
 from data import rules
 
 
@@ -53,9 +53,15 @@ class RosterReader(object):
         first_day_in_roster = cin.groupdict()['day']
         self.carry_in = int(first_day_in_roster) > 1
 
-        for roster_day in non_trip_RE.finditer(roster_data['body']):
-            self.roster_days.append(roster_day.groupdict())
+        # What is the line's first duty?
+        # first_duty = first_duty_RE.search(roster_data['body']).group()
 
+        # Search and store all Ground Duties and Markers
+        ground_duty_rows = list()
+        for roster_day in non_trip_RE.finditer(roster_data['body']):
+            ground_duty_rows.append(roster_day.groupdict())
+
+        # Search and store all Trips
         for trip_row_match in roster_trip_RE.finditer(roster_data['body']):
             roster_day = trip_row_match.groupdict()
             flights = []
@@ -64,7 +70,17 @@ class RosterReader(object):
             roster_day['flights'] = flights
             self.roster_days.append(roster_day)
 
-        self.roster_days.sort(key=operator.itemgetter('day'))
+        for row in ground_duty_rows:
+            index = self.index_where_to_insert(row)
+            self.roster_days.insert(index, row)
+
+    def index_where_to_insert(self, reserve):
+        index = 0
+        for list_index, trip_row in enumerate(self.roster_days):
+            if reserve['day'] >= trip_row['day']:
+                index = list_index + 1
+        return index
+
 
 
 class Liner(object):
@@ -117,7 +133,8 @@ class Liner(object):
                 roster_day['begin'] = '0001'
                 roster_day['end'] = '2359'
                 itinerary = self.build_itinerary(roster_day)
-                marker = Marker(name=roster_day['name'], itinerary=itinerary)
+                route = get_route(roster_day['name'], origin=self.base, destination=self.base)
+                marker = Event(route=route, scheduled_itinerary=itinerary)
                 self.line.append(marker)
             elif len(roster_day['name']) == 2 and roster_day['name'] != 'RZ':
                 duty_day = self.from_ground_itinerary(roster_day)
@@ -133,33 +150,31 @@ class Liner(object):
                                                         flight['begin'], flight['end'])
             origin = Airport(flight['origin'])
             destination = Airport(flight['destination'])
-            route = get_route(flight_number=flight['name'][-4:], departure_airport=origin,
-                              arrival_airport=destination)
+            route = get_route(name=flight['name'][-4:], origin=origin,
+                              destination=destination)
             if self.line_type == 'scheduled':
                 f = Flight(route=route, scheduled_itinerary=itinerary)
             else:
                 f = Flight(route=route, actual_itinerary=itinerary)
+            f.dh = not flight['name'].isnumeric()
             duty_day.append(f)
         return duty_day
 
-    def from_ground_itinerary(self, rD):
+    def from_ground_itinerary(self, roster_day):
         """Given a ground duty, add it to a DutyDay"""
         duty_day = DutyDay()
-        itinerary = self.build_itinerary(rD)
-        route = get_route(flight_number='0000', departure_airport=self.base,
-                          arrival_airport=self.base)
-        if self.line_type == 'scheduled':
-            i = GroundDuty(route=route, scheduled_itinerary=itinerary)
-        else:
-            i = GroundDuty(route=route, actual_itinerary=itinerary)
+        itinerary = self.build_itinerary(roster_day)
+        route = get_route(name=roster_day['name'], origin=self.base,
+                          destination=self.base)
+        i = GroundDuty(route=route, scheduled_itinerary=itinerary)
         duty_day.append(i)
         return duty_day
 
-    def build_itinerary(self, rD):
+    def build_itinerary(self, roster_day: dict) -> Itinerary:
         """return marker data, marker's don't have credits """
         try:
-            begin = rD['begin']
-            end = rD['end']
+            begin = roster_day['begin']
+            end = roster_day['end']
         except KeyError:
             begin = '0001'
             end = '2359'

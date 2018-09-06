@@ -185,12 +185,12 @@ class DateTimeTracker(object):
         return self.dt.strftime(self.datetime_format)
 
 
-# def create_date(date_string: str) -> date:
-#     """Given a string turn it into a datetime.date object
-#         %d Day of the month as a zero-padded decimal number.
-#         %m Month as a zero-padded decimal number.
-#         %y Year without century as a zero-padded decimal number."""
-#     return datetime.strptime(date_string, date_format).date()
+def create_date(date_string: str) -> date:
+    """Given a string turn it into a datetime.date object
+        %d Day of the month as a zero-padded decimal number.
+        %m Month as a zero-padded decimal number.
+        %y Year without century as a zero-padded decimal number."""
+    return datetime.strptime(date_string, date_format).date()
 
 
 def create_datetime() -> datetime:
@@ -201,5 +201,5 @@ def create_datetime() -> datetime:
         %H Hour (24-hour clock) as a zero-padded decimal number.
         %M Minute as a zero-padded decimal number.
     """
-    datetime_string = input("datetime enter str as %d%m%y %H%M format.  v.gr.  130879 0930")
+    datetime_string = input("datetime enter str as %d%m%y %H%M format.  v.gr.  130879 0930: ")
     return datetime.strptime(datetime_string, date_time_format)
