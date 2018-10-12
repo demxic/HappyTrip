@@ -2,6 +2,8 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta
 
+import psycopg2
+
 from model import creditator
 # from model.elements import DateTracker
 # from model.payment import compensation_dict, PayCheck
@@ -16,7 +18,7 @@ from model.txtRoster import RosterReader, Liner
 #summaryFile = "C:\\Users\\Xico\\Desktop\\franco.txt"
 # rolFile = "C:\\Users\\demxi\\Google Drive\\Sobrecargo\\roles\\201802.txt"
 rolFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Roles\\2018-Roles\\201809.txt"
-summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\201807-resumen de horas.txt"
+summaryFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Resumen de horas\\2018\\201808-resumen de horas.txt"
 
 
 class Menu:
@@ -137,6 +139,11 @@ class Menu:
         with open(summaryFile, 'r') as fp:
             content = fp.read()
         rr = RosterReader(content)
+
+        # 1. Create Crew Member
+        crew_member = CrewMember(**rr.crew_stats)
+        print("Crew Member :", end=" ")
+        print(crew_member)
         print("crew_stats : ", rr.crew_stats)
         print("Carry in within month? ", rr.carry_in)
         print("Roster timeZone ", rr.timeZone)
@@ -149,6 +156,7 @@ class Menu:
         liner = Liner(dt, rr.roster_days, 'actual_itinerary', rr.crew_stats['base'])
         liner.build_line()
         self.line = liner.line
+        self.line.crew_member = crew_member
 
     def retrieve_duties_from_data_base(self):
         for duty in self.line.duties:
@@ -174,6 +182,11 @@ class Menu:
                         print(turn)
 
     def quit(self):
+        answer = input("¿Deseas guardar los cambios? S/N").upper()
+        if answer[0] == 'S':
+            self.line.crew_member.update_to_db()
+
+
         print("adiós")
         sys.exit(0)
 

@@ -125,9 +125,64 @@ class CrewMember(object):
         self.name = name
         self.pos = pos
         self.group = group
-        self.base = Airport('MEX') if not base else base
+        self.base = Airport(base) if isinstance(base, str) else base
         self.seniority = seniority
         self.line = None
+
+    @classmethod
+    def load_from_db(cls, crew_member_id):
+        """This method only searches for crew data if stored in the DB"""
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT name, pos, "group", base, seniority '
+                           '    FROM public.crew_members '
+                           '    WHERE crew_member_id=%s',
+                           (crew_member_id,))
+            crew_member_data = cursor.fetchone()
+
+        if crew_member_data:
+            return cls(crew_member_id=crew_member_id, name=crew_member_data[0], pos=crew_member_data[1],
+                       group=crew_member_data[2], base=crew_member_data[3], seniority=crew_member_data[4])
+
+    def save_to_db(self) -> int:
+        """
+        Used to save Crew Memeber data into the DB, returning crew_member_id if succed!
+        """
+        saved_crew_member = self.load_from_db(crew_member_id=self.crew_member_id)
+        crew_member_id = None
+        if saved_crew_member:
+            print("Crew Memeber is already stored in DB")
+        else:
+            with CursorFromConnectionPool() as cursor:
+                cursor.execute('INSERT INTO public.crew_members (crew_member_id, name, pos, "group", base, seniority) '
+                               'VALUES (%s, %s, %s, %s, %s, %s) '
+                               'RETURNING crew_member_id;',
+                               (self.crew_member_id, self.name, self.pos, self.group, self.base.iata_code,
+                                self.seniority))
+                crew_member_id = cursor.fetchall()[0]
+
+        return crew_member_id
+
+    def update_to_db(self):
+        saved_crew_member = CrewMember.load_from_db(crew_member_id=self.crew_member_id)
+        if not saved_crew_member:
+            print("Crew Member is not stored in the DB, storing crew member...")
+            self.save_to_db()
+        else:
+            with CursorFromConnectionPool() as cursor:
+                cursor.execute('UPDATE public.crew_members '
+                               'SET name = %s, pos = %s, "group" = %s, '
+                               'base = %s, seniority = %s '
+                               'WHERE crew_member_id = %s '
+                               'RETURNING crew_member_id;',
+                               (self.name, self.pos, self.group, self.base.iata_code, self.seniority, self.crew_member_id))
+
+    def __eq__(self, other):
+        """Two Crew_Members are consider to be equal if, and only if all of
+            their parameters are equal
+        """
+        return (self.name == other.name) and (self.crew_member_id == other.crew_member_id) and \
+               (self.pos == other.pos) and (self.group == other.group) and (self.base == other.base) and \
+               (self.seniority == other.seniority)
 
     def __str__(self):
         return "{0:3s} {1:6s}-{2:12s}".format(self.pos, self.crew_member_id, self.name)
@@ -169,8 +224,8 @@ class Route(object):
 
     def as_dict(self):
         "Return route parameters as a dictionary"
-        return {'name': self.name, 'origin' : self.origin, 'destination' : self.destination,
-                'route_id' : self.route_id}
+        return {'name': self.name, 'origin': self.origin, 'destination': self.destination,
+                'route_id': self.route_id}
 
     def modify_route(self):
         """This function will update a route"""
@@ -581,7 +636,6 @@ class Flight(GroundDuty):
         else:
             self.scheduled_itinerary.end = new_end
 
-
     def modify_event(self):
         """Given a flight, modify its actual or scheduled itinerary
             Note: although you could modify other parameters, this will rarely happen
@@ -654,7 +708,7 @@ class Flight(GroundDuty):
     # TODO : Modify to save a flight with all its known values
     # TODO : ALL save_to_db() methods should be first check that event is not stored before creating it
     def save_to_db(self) -> int:
-        #Is this a new route?
+        # Is this a new route?
         self.route.save_to_db()
         if not self.event_id:
             with CursorFromConnectionPool() as cursor:
@@ -703,14 +757,14 @@ class Flight(GroundDuty):
         if not loaded_flight:
             # This is typical of a return to TARMAC, where flight will now be AM0025 MEX MEX before AM0025 MEX AMS
             # TODO : Create scheduled itinerary for returned flight automatically instead of prompting for fields
-            print(80*'*')
+            print(80 * '*')
             print("Event {} does not exist in DB \n".format(self))
             print("Create scheduled itinerary for event \n\n")
             flight_parameters = Flight.create_flight_parameters()
             created_flight = Flight(**flight_parameters)
             created_flight.save_to_db()
             loaded_flight = self.load_from_db_by_fields(airline_iata_code=self.carrier, scheduled_begin=self.begin,
-                                                    route=self.route)
+                                                        route=self.route)
         self.event_id = loaded_flight.event_id
 
         # 1. Scheduled itineraries should be the same
@@ -1170,7 +1224,7 @@ class Line(object):
         self.duties = []
         self.month = month
         self.year = year
-        self.crewMember = crew_member
+        self.crew_member = crew_member
         self._credits = {}
 
     def append(self, duty):
