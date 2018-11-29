@@ -1,4 +1,3 @@
-import json
 import pickle
 from copy import copy
 from datetime import datetime, timedelta, date
@@ -13,8 +12,8 @@ Database.initialise(database="orgutrip", user="postgres", password="0933", host=
 source = "C:\\Users\\Xico\\PycharmProjects\\HappyTrip\\data\\iata_tzmap.txt"
 pbs_path = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\PBS\\2018 PBS\\201808 PBS\\"
 # file_names = ["201806 PBS EJE.txt"]
-file_names = ["201808 PBS vuelos EJE.txt", "201808 PBS vuelos SOB A.txt", "201808 PBS vuelos SOB B.txt"]
-reserve_files = ["201806 PBS reservas EJE.txt", "201806 PBS reservas SOB.txt"]
+file_names = ["201810 - PBS vuelos EJE.txt", "201810 - PBS vuelos SOB A.txt", "201810 - PBS vuelos SOB B.txt"]
+reserve_files = ["201810 - PBS reservas EJE.txt", "201810 - PBS reservas SOB.txt"]
 pickled_unsaved_trips_file = 'pickled_unsaved_trips'
 session_routes = dict()
 session_equipments = dict()
